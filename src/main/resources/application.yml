@@ -1,0 +1,32 @@
+spring:
+  application:
+    name: board
+  profiles:
+    default: local
+  jpa:
+    open-in-view: false
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 50MB
+
+app:
+  storage:
+    location: ${APP_STORAGE_LOCATION:./uploads}
+
+server:
+  port: 8080
+  servlet:
+    session:
+      timeout: 30m
+      cookie:
+        http-only: true
+        same-site: lax
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    csrf:
+      enabled: true
+  api-docs:
+    path: /v3/api-docs

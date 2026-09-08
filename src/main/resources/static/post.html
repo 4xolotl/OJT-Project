@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#315bea">
+  <title>게시글 상세 · BOARD</title>
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/css/common.css">
+  <link rel="stylesheet" href="/assets/css/post.css">
+  <script type="module" src="/assets/js/post.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">본문 바로가기</a>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="/" aria-label="BOARD 게시판 홈"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 5h14v11H9l-4 3V5Z"/><path d="M9 9h6M9 12h4"/></svg></span><span>BOARD<span class="brand-dot">.</span></span></a>
+      <nav class="main-nav" aria-label="주 메뉴"><a href="/">자유게시판</a></nav>
+      <div class="account-actions" id="account-actions">
+        <button class="button button-ghost button-small" type="button" data-pending="로그인">로그인</button>
+        <button class="button button-outline button-small" type="button" data-pending="회원가입">회원가입</button>
+      </div>
+    </div>
+  </header>
+
+  <main id="main" class="container main-content detail-main">
+    <nav class="breadcrumb" aria-label="현재 위치"><span>커뮤니티</span><span aria-hidden="true">/</span><a href="/" data-list-link>자유게시판</a><span aria-hidden="true">/</span><span aria-current="page">게시글 상세</span></nav>
+    <div id="preview-banner" class="preview-banner" hidden><span class="preview-label">미리보기</span><span>디자인 확인을 위한 예시 글이에요. 실제 게시글이 아니며 변경 내용은 저장되지 않아요.</span></div>
+
+    <section id="page-state" class="surface page-state" role="status" aria-live="polite">
+      <span class="state-symbol" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24"><path d="M6 3h12v18H6zM9 8h6M9 12h6M9 16h3"/></svg></span>
+      <h1 id="page-state-title">이야기를 불러오고 있어요</h1>
+      <p id="page-state-description">잠시만 기다려 주세요.</p>
+      <div class="state-actions"><a class="button button-outline" href="/" data-list-link>목록으로</a><button id="page-retry" type="button" class="button button-primary" hidden>다시 시도</button></div>
+    </section>
+
+    <div id="post-view" hidden>
+      <article class="surface post-card" aria-labelledby="post-title">
+        <header class="post-heading">
+          <a href="/" data-list-link class="category-label">자유게시판</a>
+          <h1 id="post-title"></h1>
+          <div class="post-byline"><span id="post-avatar" class="avatar" aria-hidden="true"></span><div class="byline-details"><span id="post-author" class="byline-author"></span><div class="byline-date"><time id="post-date"></time><span id="post-edited" hidden>수정됨</span></div></div></div>
+        </header>
+        <div id="post-content" class="post-content"></div>
+        <section class="attachments" aria-labelledby="files-title">
+          <h2 class="section-title" id="files-title"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 13 7-7a3 3 0 0 1 4 4l-9 9a5 5 0 0 1-7-7l9-9M6 15l9-9"/></svg>첨부파일 <span id="file-count" class="count-badge">—</span></h2>
+          <div id="file-list" class="file-list"></div>
+          <div class="section-status"><p id="file-status" role="status">첨부파일을 확인하고 있어요.</p><button id="file-retry" type="button" class="button button-outline button-small" hidden>다시 시도</button></div>
+        </section>
+        <footer class="post-bottom"><div id="post-owner-actions" class="owner-actions" hidden><button id="post-edit" type="button" class="button button-outline button-small" data-pending="게시글 수정">수정</button><button id="post-delete" type="button" class="button button-ghost button-small text-danger" data-auth-action>삭제</button></div><a href="/" data-list-link class="button button-outline button-small back-button"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m10 6-6 6 6 6M4 12h16"/></svg>목록으로</a></footer>
+      </article>
+
+      <section id="comments" class="surface comments-card" aria-labelledby="comments-title">
+        <div class="comments-heading"><h2 class="section-title" id="comments-title">댓글 <span id="comment-count" class="count-badge">—</span></h2><div class="comments-tools"><span class="muted-label">등록순</span><button id="comment-refresh" type="button" class="button button-ghost button-small">새로고침</button></div></div>
+        <div id="comment-guest" class="comment-guest"><div><strong id="guest-title">함께 이야기를 나눠보세요</strong><p id="guest-description">댓글을 남기려면 로그인이 필요해요.</p></div><button id="comment-login" class="button button-outline button-small" type="button" data-pending="로그인">로그인</button><button id="session-retry" class="button button-outline button-small" type="button" hidden>다시 확인</button></div>
+        <form id="comment-form" class="comment-form" hidden>
+          <label for="comment-content" class="composer-label">댓글 남기기</label>
+          <textarea id="comment-content" class="text-control" rows="3" maxlength="2000" required placeholder="따뜻한 댓글을 남겨주세요." aria-describedby="comment-form-error comment-length"></textarea>
+          <p id="comment-form-error" class="form-error" role="alert" hidden></p>
+          <div class="composer-footer"><span id="comment-length" class="muted-label">0 / 2,000</span><button class="button button-primary button-small" id="comment-submit" type="submit" data-auth-action>댓글 등록</button></div>
+        </form>
+        <p id="preview-comment-note" class="muted-label" hidden>미리보기에서는 댓글 등록·수정·삭제를 사용할 수 없어요.</p>
+        <div id="comment-results" aria-busy="true"><ol id="comment-list" class="comment-list"></ol><div class="section-status comment-status"><p id="comment-status" role="status">댓글을 불러오고 있어요.</p><button id="comment-retry" type="button" class="button button-outline button-small" hidden>다시 시도</button></div></div>
+        <nav id="comment-pagination" class="comment-pagination" aria-label="댓글 페이지 이동" hidden><button id="comment-previous" type="button" class="button button-outline button-small">이전</button><span id="comment-page-summary" class="muted-label"></span><button id="comment-next" type="button" class="button button-outline button-small">다음</button></nav>
+      </section>
+      <p class="detail-note">서로를 존중하는 말 한마디로 편안한 공간을 만들어 주세요.</p>
+    </div>
+    <noscript><p class="surface noscript-message">게시글을 보려면 브라우저에서 JavaScript를 켜 주세요.</p></noscript>
+  </main>
+  <footer class="site-footer"><div class="container footer-inner"><span class="footer-brand">BOARD.</span><span>작은 이야기들이 모이는 공간</span></div></footer>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

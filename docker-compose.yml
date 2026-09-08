@@ -1,0 +1,42 @@
+services:
+  db:
+    image: mariadb:11.4
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    container_name: board-db
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: board
+      MARIADB_USER: board
+      MARIADB_PASSWORD: board
+      MARIADB_ROOT_PASSWORD: root
+    ports:
+      - "3306:3306"
+    volumes:
+      - mariadb-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    container_name: board-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:mariadb://db:3306/board?useUnicode=true&characterEncoding=utf8mb4
+      SPRING_DATASOURCE_USERNAME: board
+      SPRING_DATASOURCE_PASSWORD: board
+      APP_STORAGE_LOCATION: /app/uploads
+    ports:
+      - "8080:8080"
+    volumes:
+      - uploads-data:/app/uploads
+
+volumes:
+  mariadb-data:
+  uploads-data:

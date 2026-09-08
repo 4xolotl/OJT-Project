@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#315bea">
+  <meta name="description" content="궁금한 점과 일상의 이야기를 나누는 자유게시판">
+  <title>자유게시판 · BOARD</title>
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/css/common.css">
+  <link rel="stylesheet" href="/assets/css/board.css">
+  <script type="module" src="/assets/js/board.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">본문 바로가기</a>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="/" aria-label="BOARD 게시판 홈">
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 5h14v11H9l-4 3V5Z"/><path d="M9 9h6M9 12h4"/></svg></span>
+        <span>BOARD<span class="brand-dot">.</span></span>
+      </a>
+      <nav class="main-nav" aria-label="주 메뉴"><a href="/" aria-current="page">자유게시판</a></nav>
+      <div class="account-actions">
+        <button class="button button-ghost button-small" type="button" data-pending="로그인">로그인</button>
+        <button class="button button-outline button-small" type="button" data-pending="회원가입">회원가입</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="container main-content" id="main">
+    <div class="breadcrumb" aria-label="현재 위치"><span>커뮤니티</span><span aria-hidden="true">/</span><span>자유게시판</span></div>
+    <section aria-labelledby="page-title">
+      <div class="page-heading">
+        <div><h1 id="page-title">자유게시판</h1><p class="page-description">궁금한 점도, 소소한 일상도 자유롭게 나눠보세요.</p></div>
+        <button class="button button-primary" type="button" data-pending="게시글 작성"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m16 4 4 4M4 20l5-1L20 8a2.8 2.8 0 0 0-4-4L5 15l-1 5Z"/></svg>글쓰기</button>
+      </div>
+
+      <div class="surface board-panel">
+        <div class="board-toolbar">
+          <h2 class="section-title">전체 글 <span id="post-count" class="count-badge">—</span></h2>
+          <form id="search-form" class="search-form" role="search">
+            <label class="sr-only" for="search">게시글 제목 또는 내용 검색</label>
+            <div class="search-field"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg><input id="search" name="keyword" type="search" maxlength="100" placeholder="제목 또는 내용 검색" autocomplete="off"></div>
+            <button class="button button-outline" type="submit">검색</button>
+          </form>
+        </div>
+
+        <div class="list-options">
+          <p id="list-summary" role="status" aria-live="polite">이야기를 불러오고 있어요.</p>
+          <div class="list-settings"><span class="sort-label"><span class="sort-dot" aria-hidden="true"></span>최신순</span><label class="sr-only" for="page-size">페이지당 게시글 수</label><select id="page-size" class="select-control"><option value="10">10개씩 보기</option><option value="20" selected>20개씩 보기</option><option value="50">50개씩 보기</option></select></div>
+        </div>
+
+        <div id="results" aria-busy="true">
+          <table class="post-table">
+            <caption class="sr-only">자유게시판 게시글 목록</caption>
+            <colgroup><col class="number-column"><col><col class="author-column"><col class="date-column"></colgroup>
+            <thead><tr><th scope="col" class="post-number">번호</th><th scope="col" class="title-heading">제목</th><th scope="col" class="post-author">작성자</th><th scope="col" class="post-date">작성일</th></tr></thead>
+            <tbody id="post-list"></tbody>
+          </table>
+          <div id="list-state" class="list-state" role="status">
+            <div class="state-art" aria-hidden="true"><svg viewBox="0 0 64 64"><rect x="15" y="10" width="34" height="44" rx="6"/><path d="M24 23h16M24 31h16M24 39h9"/></svg><span class="state-spark"></span></div>
+            <h3 id="state-title">게시글을 불러오고 있어요</h3>
+            <p id="state-description">잠시만 기다려 주세요.</p>
+            <button id="state-action" class="button button-outline" type="button" hidden>다시 시도</button>
+          </div>
+        </div>
+
+        <div id="pagination-area" class="pagination-area" hidden>
+          <span id="page-summary" class="page-summary"></span>
+          <nav id="pagination" class="pagination" aria-label="게시글 페이지 이동"></nav>
+          <span class="pagination-spacer" aria-hidden="true"></span>
+        </div>
+      </div>
+      <p class="board-note"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6l-8-3Z"/><path d="m8 12 3 3 5-5"/></svg>서로를 존중하는 말 한마디로 편안한 공간을 만들어 주세요.</p>
+    </section>
+    <noscript><p class="surface noscript-message">게시글 목록을 보려면 브라우저에서 JavaScript를 켜 주세요.</p></noscript>
+  </main>
+
+  <footer class="site-footer"><div class="container footer-inner"><span class="footer-brand">BOARD.</span><span>작은 이야기들이 모이는 공간</span></div></footer>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

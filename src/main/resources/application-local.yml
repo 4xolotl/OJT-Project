@@ -1,0 +1,21 @@
+spring:
+  datasource:
+    url: jdbc:mariadb://localhost:3306/board?useUnicode=true&characterEncoding=utf8mb4
+    username: board
+    password: board
+    driver-class-name: org.mariadb.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 50MB
+
+logging:
+  level:
+    org.hibernate.SQL: debug
