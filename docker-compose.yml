@@ -10,7 +10,7 @@ services:
       MARIADB_PASSWORD: board
       MARIADB_ROOT_PASSWORD: root
     ports:
-      - "3306:3306"
+      - "127.0.0.1:3306:3306"
     volumes:
       - mariadb-data:/var/lib/mysql
     healthcheck:
@@ -33,7 +33,7 @@ services:
       SPRING_DATASOURCE_PASSWORD: board
       APP_STORAGE_LOCATION: /app/uploads
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     volumes:
       - uploads-data:/app/uploads
 

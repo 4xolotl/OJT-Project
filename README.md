@@ -49,7 +49,9 @@ docker compose ps
 docker compose logs -f app
 ```
 
-MariaDB의 준비 상태를 확인한 뒤 앱이 실행됩니다. 기본 포트는 앱 `8080`, DB `3306`입니다.
+MariaDB의 준비 상태를 확인한 뒤 앱이 실행됩니다. 기본 포트는 앱 `8080`, DB `3306`이며 두 포트 모두 호스트의 `127.0.0.1`에만 바인딩합니다. 이 Compose 구성은 로컬 과제용으로, 같은 컴퓨터에서 `localhost` 또는 `127.0.0.1`로 접속합니다. 컨테이너 간 DB 연결은 Compose 내부 네트워크의 `db:3306`을 사용합니다.
+
+기존에 실행한 컨테이너에도 포트 제한을 적용하려면 프로젝트 루트에서 `docker compose up -d`를 다시 실행합니다. 변경된 컨테이너가 재생성되며 기존 DB·업로드 볼륨은 유지됩니다. `docker compose ps`에서 `127.0.0.1:8080`과 `127.0.0.1:3306` 바인딩을 확인할 수 있습니다.
 
 - 게시판 목록: http://localhost:8080/
 - Swagger UI: http://localhost:8080/swagger-ui.html
@@ -243,4 +245,4 @@ GET /api/posts/1/comments?page=0&size=20
 
 회원 인증, 게시글·댓글 CRUD, 첨부파일 업로드·다운로드 및 Swagger 명세를 제공합니다. 기능명세는 실행 중인 Swagger UI와 [API_SPEC.md](docs/API_SPEC.md)로 확인할 수 있으며 필요하면 해당 문서를 Notion으로 옮길 수 있습니다.
 
-실제 Docker Compose 환경의 실행·데이터 유지 검증은 완료했습니다. 개인 GitHub 업로드는 이후 진행하며, 소스와 문서를 업로드한 뒤 GitHub 링크를 제출합니다. DB 데이터, 환경 파일, 업로드 파일은 커밋하지 않습니다.
+실제 Docker Compose 환경의 실행·데이터 유지 검증과 [개인 GitHub 저장소](https://github.com/4xolotl/Spring-Boot-)의 초기 소스·문서 업로드를 완료했습니다. 나머지 화면을 구현한 뒤 최종 GitHub 링크와 기능명세를 과제로 제출합니다. DB 데이터, 환경 파일, 업로드 파일은 커밋하지 않습니다.
