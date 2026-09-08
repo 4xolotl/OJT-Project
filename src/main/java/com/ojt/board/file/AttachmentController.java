@@ -1,6 +1,6 @@
 package com.ojt.board.file;
 
-import com.ojt.board.user.User;
+import com.ojt.board.auth.BoardPrincipal;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
@@ -46,7 +46,7 @@ public class AttachmentController {
             content = @Content(array = @ArraySchema(schema = @Schema(implementation = AttachmentResponse.class))))
     public ResponseEntity<List<AttachmentResponse>> upload(
             @PathVariable Long postId,
-            @Parameter(hidden = true) @AuthenticationPrincipal User user,
+            @Parameter(hidden = true) @AuthenticationPrincipal BoardPrincipal user,
             @RequestPart("files") List<MultipartFile> files
     ) {
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -74,7 +74,7 @@ public class AttachmentController {
     @ApiResponse(responseCode = "204", description = "첨부파일 삭제 완료", content = @Content)
     public ResponseEntity<Void> delete(
             @PathVariable Long fileId,
-            @Parameter(hidden = true) @AuthenticationPrincipal User user
+            @Parameter(hidden = true) @AuthenticationPrincipal BoardPrincipal user
     ) {
         attachmentService.delete(fileId, user.getId());
         return ResponseEntity.noContent().build();

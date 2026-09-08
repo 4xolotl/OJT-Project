@@ -60,8 +60,83 @@ class BoardPageTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = {"/login.html", "/login.html?returnTo=%2Fpost.html%3Fid%3D1"})
+    void loginPageServesFormWithoutAuthentication(String path) {
+        ResponseEntity<String> response = restTemplate.getForEntity(path, String.class);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertNotNull(response.getHeaders().getContentType());
+        assertTrue(response.getHeaders().getContentType().isCompatibleWith(MediaType.TEXT_HTML));
+        assertNotNull(response.getBody());
+        assertTrue(response.getBody().contains("<html"));
+        assertTrue(response.getBody().contains("type=\"email\""));
+        assertTrue(response.getBody().contains("type=\"password\""));
+        assertTrue(response.getBody().contains("/assets/css/common.css"));
+        assertTrue(response.getBody().contains("/assets/css/auth.css"));
+        assertTrue(response.getBody().contains("/assets/js/login.js"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/signup.html", "/signup.html?returnTo=%2Fpost.html%3Fid%3D1"})
+    void signupPageServesFormWithoutAuthentication(String path) {
+        ResponseEntity<String> response = restTemplate.getForEntity(path, String.class);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertNotNull(response.getHeaders().getContentType());
+        assertTrue(response.getHeaders().getContentType().isCompatibleWith(MediaType.TEXT_HTML));
+        assertNotNull(response.getBody());
+        assertTrue(response.getBody().contains("<html"));
+        assertTrue(response.getBody().contains("method=\"post\""));
+        for (String field : List.of("email", "nickname", "password", "password-confirm")) {
+            assertTrue(response.getBody().contains("id=\"" + field + "\""), field);
+        }
+        assertTrue(response.getBody().contains("type=\"email\""));
+        assertTrue(response.getBody().contains("type=\"password\""));
+        assertTrue(response.getBody().contains("/assets/css/common.css"));
+        assertTrue(response.getBody().contains("/assets/css/auth.css"));
+        assertTrue(response.getBody().contains("/assets/js/signup.js"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/write.html", "/write.html?preview=1"})
+    void writePageServesFormWithoutAuthentication(String path) {
+        ResponseEntity<String> response = restTemplate.getForEntity(path, String.class);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertNotNull(response.getHeaders().getContentType());
+        assertTrue(response.getHeaders().getContentType().isCompatibleWith(MediaType.TEXT_HTML));
+        assertNotNull(response.getBody());
+        assertTrue(response.getBody().contains("<html"));
+        for (String field : List.of("post-form", "post-title", "post-content", "file-input")) {
+            assertTrue(response.getBody().contains("id=\"" + field + "\""), field);
+        }
+        assertTrue(response.getBody().contains("type=\"file\""));
+        assertTrue(response.getBody().contains("/assets/css/common.css"));
+        assertTrue(response.getBody().contains("/assets/css/editor.css"));
+        assertTrue(response.getBody().contains("/assets/js/write.js"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/edit.html?id=1", "/edit.html?preview=1"})
+    void editPageServesFormWithoutAuthentication(String path) {
+        ResponseEntity<String> response = restTemplate.getForEntity(path, String.class);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertNotNull(response.getHeaders().getContentType());
+        assertTrue(response.getHeaders().getContentType().isCompatibleWith(MediaType.TEXT_HTML));
+        assertNotNull(response.getBody());
+        for (String field : List.of("edit-form", "post-title", "post-content", "file-input")) {
+            assertTrue(response.getBody().contains("id=\"" + field + "\""), field);
+        }
+        assertTrue(response.getBody().contains("type=\"file\""));
+        assertTrue(response.getBody().contains("/assets/css/editor.css"));
+        assertTrue(response.getBody().contains("/assets/js/edit.js"));
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {"/assets/css/common.css", "/assets/js/board.js",
-            "/assets/css/post.css", "/assets/js/post.js"})
+            "/assets/css/post.css", "/assets/js/post.js", "/assets/css/auth.css", "/assets/js/login.js",
+            "/assets/js/signup.js", "/assets/css/editor.css", "/assets/js/write.js", "/assets/js/edit.js"})
     void boardAssetsAreAccessibleWithoutAuthentication(String path) {
         ResponseEntity<String> response = restTemplate.getForEntity(path, String.class);
 
@@ -71,8 +146,10 @@ class BoardPageTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"/", "/index.html", "/post.html", "/assets/css/common.css", "/assets/js/board.js",
-            "/assets/css/post.css", "/assets/js/post.js"})
+    @ValueSource(strings = {"/", "/index.html", "/post.html", "/login.html", "/signup.html", "/write.html", "/edit.html",
+            "/assets/css/common.css", "/assets/js/board.js", "/assets/css/post.css", "/assets/js/post.js",
+            "/assets/css/auth.css", "/assets/js/login.js", "/assets/js/signup.js", "/assets/css/editor.css",
+            "/assets/js/write.js", "/assets/js/edit.js"})
     void boardPagesAndAssetsSupportAnonymousHead(String path) {
         ResponseEntity<String> response = restTemplate.exchange(
                 path, HttpMethod.HEAD, HttpEntity.EMPTY, String.class);
@@ -107,7 +184,8 @@ class BoardPageTest {
         headers.set(csrf.path("headerName").asText(), csrf.path("token").asText());
 
         // A valid CSRF token must not grant authentication or make static paths writable.
-        for (String path : List.of("/api/posts", "/", "/index.html", "/post.html", "/assets/js/board.js")) {
+        for (String path : List.of("/api/posts", "/", "/index.html", "/post.html", "/login.html", "/signup.html",
+                "/write.html", "/edit.html", "/assets/js/board.js", "/assets/js/write.js", "/assets/js/edit.js")) {
             ResponseEntity<JsonNode> response = restTemplate.postForEntity(
                     path, new HttpEntity<>(postBody, headers), JsonNode.class);
             assertEquals(HttpStatus.UNAUTHORIZED, response.getStatusCode(), path);

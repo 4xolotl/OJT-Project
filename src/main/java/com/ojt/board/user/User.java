@@ -1,5 +1,6 @@
 package com.ojt.board.user;
 
+import com.ojt.board.auth.BoardPrincipal;
 import java.util.Collection;
 import java.util.List;
 
@@ -21,19 +22,20 @@ import lombok.NoArgsConstructor;
 @Table(name = "users")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class User implements UserDetails {
+public class User implements UserDetails, BoardPrincipal {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, unique = true, length = 100)
+    @Column(nullable = false, unique = true, length = 254)
     private String email;
 
     @Column(nullable = false, length = 100)
     private String nickname;
 
-    @Column(nullable = false)
+    // External-provider accounts have no password credential.
+    @Column
     private String password;
 
     public User(String email, String nickname, String password) {

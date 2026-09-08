@@ -32,6 +32,10 @@ services:
       SPRING_DATASOURCE_USERNAME: board
       SPRING_DATASOURCE_PASSWORD: board
       APP_STORAGE_LOCATION: /app/uploads
+      GOOGLE_LOGIN_ENABLED: ${GOOGLE_LOGIN_ENABLED:-false}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:8080/login/oauth2/code/google}
     ports:
       - "127.0.0.1:8080:8080"
     volumes:

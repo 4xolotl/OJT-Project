@@ -1,0 +1,48 @@
+.auth-main { flex: 1; padding-block: 48px 72px; }
+.auth-layout { width: min(100%, 440px); margin-inline: auto; }
+.auth-back { display: inline-flex; align-items: center; gap: 7px; margin-bottom: 20px; color: var(--color-muted); font-size: 13px; }
+.auth-back:hover { color: var(--color-primary); }
+.auth-card { padding: 36px; box-shadow: 0 8px 32px #26375604; }
+.auth-symbol { display: grid; place-items: center; width: 48px; height: 48px; margin-bottom: 22px; border-radius: 14px; background: var(--color-primary-soft); color: var(--color-primary); }
+.auth-symbol svg { width: 30px; height: 30px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.auth-card h1 { margin: 0; font-size: 28px; line-height: 1.4; letter-spacing: -1px; }
+.auth-description { margin: 10px 0 30px; color: var(--color-muted); font-size: 14px; line-height: 1.8; }
+.auth-card fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.auth-field + .auth-field { margin-top: 22px; }
+.auth-field label { display: block; margin-bottom: 8px; font-size: 13px; font-weight: 600; }
+.auth-field .text-control { min-height: 50px; padding-block: 12px; }
+.auth-field .text-control[aria-invalid="true"] { border-color: #c33143; }
+.auth-field .form-error { margin-top: 7px; }
+.auth-hint { margin: 7px 0 0; color: var(--color-muted); font-size: 12px; }
+.auth-password-rules { margin-top: 5px; color: var(--color-muted); font-size: 12px; }
+.auth-password-rules summary { cursor: pointer; width: fit-content; }
+.auth-password-rules code { display: block; margin-top: 8px; padding: 9px 12px; background: var(--color-background); border-radius: 6px; color: var(--color-text); overflow-wrap: anywhere; letter-spacing: 1px; }
+.password-control { position: relative; }
+.password-control input { padding-right: 66px; }
+.password-toggle { position: absolute; top: 5px; bottom: 5px; right: 5px; min-width: 52px; padding: 8px; border: 0; border-radius: 5px; background: transparent; color: var(--color-muted); font-size: 12px; }
+.password-toggle:hover { background: var(--color-primary-soft); color: var(--color-primary); }
+.password-toggle:disabled { cursor: default; opacity: .5; }
+.auth-submit { width: 100%; min-height: 50px; margin-top: 28px; font-size: 14px; }
+.auth-provider { text-align: center; }
+.auth-google { width: 100%; min-height: 50px; font-size: 14px; }
+.auth-provider-status { margin: 9px 0 0; color: var(--color-muted); font-size: 12px; }
+.auth-provider .auth-text-button { margin-top: 5px; }
+.auth-divider { display: flex; align-items: center; gap: 12px; margin: 25px 0; color: var(--color-muted); font-size: 12px; }
+.auth-divider::before, .auth-divider::after { content: ''; flex: 1; border-top: 1px solid var(--color-border); }
+.auth-switch { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 7px 10px; margin-top: 28px; padding-top: 23px; border-top: 1px solid var(--color-border); font-size: 12px; color: var(--color-muted); }
+.auth-text-button { padding: 5px 0; border: 0; border-radius: 3px; background: transparent; color: var(--color-primary); font-size: 12px; font-weight: 600; }
+.auth-text-button:hover { text-decoration: underline; text-underline-offset: 4px; }
+.auth-text-button:disabled { opacity: .5; cursor: default; }
+.auth-alert { margin: 0 0 22px; padding: 12px 14px; background: #fff3f4; border: 1px solid #f4d4d9; border-radius: var(--radius-control); color: #a52638; font-size: 13px; overflow-wrap: anywhere; }
+.auth-success { margin: 0 0 22px; padding: 12px 14px; background: #eff9f4; border: 1px solid #cbe6d8; border-radius: var(--radius-control); color: #256346; font-size: 13px; overflow-wrap: anywhere; }
+.auth-status { margin: -10px 0 20px; color: var(--color-muted); font-size: 12px; }
+.signed-in-panel > p { margin: 0; padding: 18px; background: var(--color-primary-soft); border-radius: var(--radius-control); color: #465268; overflow-wrap: anywhere; }
+.signed-in-panel strong { color: var(--color-primary); }
+.signed-in-panel .auth-text-button { display: block; margin: 18px auto 0; }
+.auth-note { margin: 24px 0 0; color: var(--color-muted); text-align: center; font-size: 12px; }
+@media (max-width: 640px) {
+  .auth-main { padding-block: 28px 44px; }
+  .auth-back { margin-bottom: 16px; }
+  .auth-card { padding: 28px 24px; }
+  .auth-card h1 { font-size: 25px; }
+}

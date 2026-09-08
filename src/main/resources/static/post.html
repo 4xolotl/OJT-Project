@@ -17,8 +17,8 @@
       <a class="brand" href="/" aria-label="BOARD 게시판 홈"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 5h14v11H9l-4 3V5Z"/><path d="M9 9h6M9 12h4"/></svg></span><span>BOARD<span class="brand-dot">.</span></span></a>
       <nav class="main-nav" aria-label="주 메뉴"><a href="/">자유게시판</a></nav>
       <div class="account-actions" id="account-actions">
-        <button class="button button-ghost button-small" type="button" data-pending="로그인">로그인</button>
-        <button class="button button-outline button-small" type="button" data-pending="회원가입">회원가입</button>
+        <a class="button button-ghost button-small" href="/login.html" data-login-link>로그인</a>
+        <a class="button button-outline button-small" href="/signup.html" data-signup-link>회원가입</a>
       </div>
     </div>
   </header>
@@ -47,12 +47,12 @@
           <div id="file-list" class="file-list"></div>
           <div class="section-status"><p id="file-status" role="status">첨부파일을 확인하고 있어요.</p><button id="file-retry" type="button" class="button button-outline button-small" hidden>다시 시도</button></div>
         </section>
-        <footer class="post-bottom"><div id="post-owner-actions" class="owner-actions" hidden><button id="post-edit" type="button" class="button button-outline button-small" data-pending="게시글 수정">수정</button><button id="post-delete" type="button" class="button button-ghost button-small text-danger" data-auth-action>삭제</button></div><a href="/" data-list-link class="button button-outline button-small back-button"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m10 6-6 6 6 6M4 12h16"/></svg>목록으로</a></footer>
+        <footer class="post-bottom"><div id="post-owner-actions" class="owner-actions" hidden><a id="post-edit" class="button button-outline button-small" aria-disabled="true" tabindex="-1">수정</a><button id="post-delete" type="button" class="button button-ghost button-small text-danger" data-auth-action>삭제</button></div><a href="/" data-list-link class="button button-outline button-small back-button"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m10 6-6 6 6 6M4 12h16"/></svg>목록으로</a></footer>
       </article>
 
       <section id="comments" class="surface comments-card" aria-labelledby="comments-title">
         <div class="comments-heading"><h2 class="section-title" id="comments-title">댓글 <span id="comment-count" class="count-badge">—</span></h2><div class="comments-tools"><span class="muted-label">등록순</span><button id="comment-refresh" type="button" class="button button-ghost button-small">새로고침</button></div></div>
-        <div id="comment-guest" class="comment-guest"><div><strong id="guest-title">함께 이야기를 나눠보세요</strong><p id="guest-description">댓글을 남기려면 로그인이 필요해요.</p></div><button id="comment-login" class="button button-outline button-small" type="button" data-pending="로그인">로그인</button><button id="session-retry" class="button button-outline button-small" type="button" hidden>다시 확인</button></div>
+        <div id="comment-guest" class="comment-guest"><div><strong id="guest-title">함께 이야기를 나눠보세요</strong><p id="guest-description">댓글을 남기려면 로그인이 필요해요.</p></div><a id="comment-login" class="button button-outline button-small" href="/login.html" data-login-link>로그인</a><button id="session-retry" class="button button-outline button-small" type="button" hidden>다시 확인</button></div>
         <form id="comment-form" class="comment-form" hidden>
           <label for="comment-content" class="composer-label">댓글 남기기</label>
           <textarea id="comment-content" class="text-control" rows="3" maxlength="2000" required placeholder="따뜻한 댓글을 남겨주세요." aria-describedby="comment-form-error comment-length"></textarea>

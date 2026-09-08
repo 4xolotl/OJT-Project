@@ -70,12 +70,12 @@ public class AuthController {
         SecurityContextHolder.setContext(context);
         securityContextRepository.saveContext(context, httpRequest, httpResponse);
 
-        return AuthResponse.from((User) authentication.getPrincipal());
+        return AuthResponse.from((BoardPrincipal) authentication.getPrincipal());
     }
 
     @GetMapping("/me")
     @Operation(summary = "로그인 사용자 조회")
     public AuthResponse me(Authentication authentication) {
-        return AuthResponse.from((User) authentication.getPrincipal());
+        return AuthResponse.from((BoardPrincipal) authentication.getPrincipal());
     }
 }

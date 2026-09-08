@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#315bea">
+  <meta name="description" content="BOARD에 로그인하고 이야기를 나눠보세요.">
+  <title>로그인 · BOARD</title>
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/css/common.css">
+  <link rel="stylesheet" href="/assets/css/auth.css">
+  <script type="module" src="/assets/js/login.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">본문 바로가기</a>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="/" aria-label="BOARD 게시판 홈">
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 5h14v11H9l-4 3V5Z"/><path d="M9 9h6M9 12h4"/></svg></span>
+        <span>BOARD<span class="brand-dot">.</span></span>
+      </a>
+      <nav class="main-nav" aria-label="주 메뉴"><a href="/">자유게시판</a></nav>
+      <div class="account-actions"><a class="button button-ghost button-small" href="/">게시판으로</a></div>
+    </div>
+  </header>
+
+  <main class="container auth-main" id="main">
+    <div class="auth-layout">
+      <a id="back-link" class="auth-back" href="/"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6M8 12h12"/></svg>이전 화면으로</a>
+      <section class="surface auth-card" aria-labelledby="page-title">
+        <div class="auth-symbol" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M7 6h18v15H13l-6 5V6Z"/><path d="M12 12h8M12 16h5"/></svg></div>
+        <h1 id="page-title">로그인</h1>
+        <p class="auth-description">다시 만나 반가워요.<br>로그인하고 이야기를 이어가세요.</p>
+
+        <p id="session-status" class="auth-status" role="status" aria-live="polite">로그인 상태를 확인하고 있어요.</p>
+        <p id="registration-notice" class="auth-success" role="status" hidden>회원가입을 완료했어요. 가입한 이메일과 비밀번호로 로그인해 주세요.</p>
+        <p id="login-error" class="auth-alert" role="alert" hidden></p>
+
+        <div id="login-panel">
+          <div class="auth-provider">
+            <button id="google-login" class="button button-outline auth-google" type="button" aria-describedby="google-status" disabled>Google로 계속하기</button>
+            <p id="google-status" class="auth-provider-status" role="status" aria-live="polite">Google 로그인 연결을 확인하고 있어요.</p>
+            <button id="google-retry" class="auth-text-button" type="button" hidden>Google 연결 다시 확인</button>
+          </div>
+          <div class="auth-divider"><span>또는 이메일로 로그인</span></div>
+          <form id="login-form" action="/api/auth/login" method="post" novalidate>
+            <fieldset id="login-fields" disabled>
+              <legend class="sr-only">로그인 정보</legend>
+              <div class="auth-field">
+                <label for="email">이메일</label>
+                <input class="text-control" id="email" name="email" type="email" inputmode="email" autocomplete="username" autocapitalize="off" spellcheck="false" maxlength="100" placeholder="이메일 주소를 입력해 주세요" aria-describedby="email-error" required>
+                <p id="email-error" class="form-error" hidden></p>
+              </div>
+              <div class="auth-field">
+                <label for="password">비밀번호</label>
+                <div class="password-control">
+                  <input class="text-control" id="password" name="password" type="password" autocomplete="current-password" autocapitalize="off" spellcheck="false" placeholder="비밀번호를 입력해 주세요" aria-describedby="password-hint password-error" required>
+                  <button id="toggle-password" class="password-toggle" type="button" aria-label="비밀번호 보기" aria-controls="password" aria-pressed="false">보기</button>
+                </div>
+                <p id="password-hint" class="auth-hint">영문 대소문자, 숫자, 특수문자만 사용해요. (공백 제외)</p>
+                <details class="auth-password-rules"><summary>허용 특수문자 보기</summary><code>!&quot;#$%&amp;&#39;()*+,-./:;&lt;=&gt;?@[\]^_`{|}~</code></details>
+                <p id="password-error" class="form-error" hidden></p>
+              </div>
+              <button id="login-submit" class="button button-primary auth-submit" type="submit">로그인</button>
+            </fieldset>
+          </form>
+          <div class="auth-switch"><span>아직 계정이 없으신가요?</span><a id="signup-link" class="auth-text-button" href="/signup.html">회원가입</a></div>
+        </div>
+
+        <div id="signed-in-panel" class="signed-in-panel" hidden>
+          <p><strong id="signed-in-name"></strong>님,<br>이미 로그인되어 있어요.</p>
+          <a id="continue-link" class="button button-primary auth-submit" href="/">이전 화면으로 돌아가기</a>
+          <button id="switch-account" class="auth-text-button" type="button">로그아웃하고 다른 계정으로 로그인</button>
+        </div>
+        <noscript><p class="auth-alert">로그인하려면 브라우저에서 JavaScript를 켜 주세요.</p></noscript>
+      </section>
+      <p class="auth-note">작은 이야기들이 모이는 공간, BOARD.</p>
+    </div>
+  </main>
+
+  <footer class="site-footer"><div class="container footer-inner"><span class="footer-brand">BOARD.</span><span>작은 이야기들이 모이는 공간</span></div></footer>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

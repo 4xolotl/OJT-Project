@@ -11,6 +11,7 @@ import com.ojt.board.global.ResourceNotFoundException;
 import com.ojt.board.post.Post;
 import com.ojt.board.post.PostRepository;
 import com.ojt.board.user.User;
+import com.ojt.board.user.UserRepository;
 
 import lombok.RequiredArgsConstructor;
 
@@ -21,6 +22,7 @@ public class CommentService {
 
     private final CommentRepository commentRepository;
     private final PostRepository postRepository;
+    private final UserRepository userRepository;
 
     public PageResponse<CommentResponse> list(Long postId, int page, int size) {
         if (page < 0 || size < 1 || size > 100) {
@@ -35,27 +37,29 @@ public class CommentService {
     }
 
     @Transactional
-    public CommentResponse create(Long postId, User author, CommentRequest request) {
+    public CommentResponse create(Long postId, Long actorId, CommentRequest request) {
         Post post = lockPost(postId);
+        User author = userRepository.findById(actorId)
+                .orElseThrow(() -> new ResourceNotFoundException("사용자를 찾을 수 없습니다."));
         Comment comment = new Comment(post, author, request.content());
         return CommentResponse.from(commentRepository.saveAndFlush(comment));
     }
 
     @Transactional
-    public CommentResponse update(Long postId, Long commentId, User user, CommentRequest request) {
+    public CommentResponse update(Long postId, Long commentId, Long actorId, CommentRequest request) {
         lockPost(postId);
         Comment comment = findComment(postId, commentId);
-        requireAuthor(comment, user);
+        requireAuthor(comment, actorId);
         comment.updateContent(request.content());
         commentRepository.flush();
         return CommentResponse.from(comment);
     }
 
     @Transactional
-    public void delete(Long postId, Long commentId, User user) {
+    public void delete(Long postId, Long commentId, Long actorId) {
         lockPost(postId);
         Comment comment = findComment(postId, commentId);
-        requireAuthor(comment, user);
+        requireAuthor(comment, actorId);
         commentRepository.delete(comment);
     }
 
@@ -69,8 +73,8 @@ public class CommentService {
                 .orElseThrow(() -> new ResourceNotFoundException("댓글을 찾을 수 없습니다."));
     }
 
-    private void requireAuthor(Comment comment, User user) {
-        if (!comment.getAuthor().getId().equals(user.getId())) {
+    private void requireAuthor(Comment comment, Long actorId) {
+        if (!comment.getAuthor().getId().equals(actorId)) {
             throw new AccessDeniedException("댓글 작성자만 수정하거나 삭제할 수 있습니다.");
         }
     }

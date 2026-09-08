@@ -1,10 +1,12 @@
 const REQUEST_TIMEOUT_MS = 15000;
+const UPLOAD_TIMEOUT_MS = 60000;
 
 export class ApiError extends Error {
-  constructor(message, status = 0) {
+  constructor(message, status = 0, mayHaveSucceeded = false) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.mayHaveSucceeded = mayHaveSucceeded;
   }
 }
 
@@ -19,14 +21,16 @@ function validatePath(path) {
   }
 }
 
-function cancelledError() {
+function cancelledError(mayHaveSucceeded = false) {
   const error = new Error('요청이 취소되었어요.');
   error.name = 'AbortError';
+  error.mayHaveSucceeded = mayHaveSucceeded;
   return error;
 }
 
-async function fetchJson(path, { method, body, headers, signal }) {
+async function fetchJson(path, { method, body, headers, signal, onSend, onResponse }) {
   if (signal.aborted) throw cancelledError();
+  onSend?.();
   const response = await fetch(path, {
     method,
     body,
@@ -35,6 +39,7 @@ async function fetchJson(path, { method, body, headers, signal }) {
     credentials: 'same-origin',
     redirect: 'error'
   });
+  onResponse?.(response.status);
   if (response.ok && (response.status === 204 || method === 'HEAD')) return null;
 
   const text = await response.text();
@@ -60,15 +65,20 @@ export async function request(path, { method = 'GET', body, signal } = {}) {
   if (typeof method !== 'string') throw new ApiError('요청 방식을 확인해 주세요.');
   method = method.toUpperCase();
   const mutates = method !== 'GET' && method !== 'HEAD';
+  const multipart = typeof FormData !== 'undefined' && body instanceof FormData;
   let serializedBody;
   if (body !== undefined) {
     if (!mutates || body === null || typeof body !== 'object') {
       throw new ApiError('요청 데이터를 확인해 주세요.');
     }
-    try {
-      serializedBody = JSON.stringify(body);
-    } catch {
-      throw new ApiError('요청 데이터를 JSON으로 변환하지 못했어요.');
+    if (multipart) {
+      serializedBody = body;
+    } else {
+      try {
+        serializedBody = JSON.stringify(body);
+      } catch {
+        throw new ApiError('요청 데이터를 JSON으로 변환하지 못했어요.');
+      }
     }
   }
 
@@ -77,14 +87,18 @@ export async function request(path, { method = 'GET', body, signal } = {}) {
   signal?.addEventListener('abort', cancel, { once: true });
   if (signal?.aborted) controller.abort();
   let timedOut = false;
+  let mutationSent = false;
+  let mutationStatus = 0;
+  const mayHaveSucceeded = status => mutationSent
+    && (status === 0 || status >= 500 || (status >= 200 && status < 300));
   const timeout = setTimeout(() => {
     timedOut = true;
     controller.abort();
-  }, REQUEST_TIMEOUT_MS);
+  }, multipart ? UPLOAD_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
 
   try {
     const headers = new Headers({ Accept: 'application/json' });
-    if (serializedBody !== undefined) headers.set('Content-Type', 'application/json');
+    if (serializedBody !== undefined && !multipart) headers.set('Content-Type', 'application/json');
     if (mutates) {
       // Fetch a fresh token for every mutation, including after login or logout.
       const csrf = await fetchJson('/api/auth/csrf', {
@@ -103,14 +117,23 @@ export async function request(path, { method = 'GET', body, signal } = {}) {
       }
     }
     // Mutations are sent once. A timeout can occur after the server has committed a change.
-    return await fetchJson(path, { method, body: serializedBody, headers, signal: controller.signal });
+    return await fetchJson(path, {
+      method, body: serializedBody, headers, signal: controller.signal,
+      onSend: mutates ? () => { mutationSent = true; } : undefined,
+      onResponse: mutates ? status => { mutationStatus = status; } : undefined
+    });
   } catch (error) {
-    if (error instanceof ApiError) throw error;
-    if (timedOut) {
-      throw new ApiError('응답이 늦어지고 있어요. 잠시 후 다시 시도해 주세요.');
+    if (error instanceof ApiError) {
+      error.mayHaveSucceeded = mayHaveSucceeded(error.status);
+      throw error;
     }
-    if (signal?.aborted) throw cancelledError();
-    throw new ApiError('서버에 연결하지 못했어요. 연결 상태를 확인해 주세요.');
+    if (timedOut) {
+      throw new ApiError('응답이 늦어지고 있어요. 잠시 후 다시 시도해 주세요.', mutationStatus,
+        mayHaveSucceeded(mutationStatus));
+    }
+    if (signal?.aborted) throw cancelledError(mayHaveSucceeded(mutationStatus));
+    throw new ApiError('서버에 연결하지 못했어요. 연결 상태를 확인해 주세요.', mutationStatus,
+      mayHaveSucceeded(mutationStatus));
   } finally {
     clearTimeout(timeout);
     signal?.removeEventListener('abort', cancel);

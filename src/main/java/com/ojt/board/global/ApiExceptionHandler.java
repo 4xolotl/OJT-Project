@@ -26,6 +26,11 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class ApiExceptionHandler {
 
+    @ExceptionHandler(EditConflictException.class)
+    public ResponseEntity<Map<String, String>> handleEditConflict(EditConflictException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message", exception.getMessage()));
+    }
+
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<Map<String, String>> handleNotFound(ResourceNotFoundException exception) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("message", exception.getMessage()));

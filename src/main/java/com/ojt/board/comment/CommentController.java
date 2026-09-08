@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.ojt.board.global.PageResponse;
-import com.ojt.board.user.User;
+import com.ojt.board.auth.BoardPrincipal;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -53,10 +53,10 @@ public class CommentController {
     @ApiResponse(responseCode = "404", description = "게시글 없음")
     public ResponseEntity<CommentResponse> create(
             @PathVariable Long postId,
-            @Parameter(hidden = true) @AuthenticationPrincipal User user,
+            @Parameter(hidden = true) @AuthenticationPrincipal BoardPrincipal user,
             @Valid @RequestBody CommentRequest request
     ) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(commentService.create(postId, user, request));
+        return ResponseEntity.status(HttpStatus.CREATED).body(commentService.create(postId, user.getId(), request));
     }
 
     @PutMapping("/{commentId}")
@@ -69,10 +69,10 @@ public class CommentController {
     public CommentResponse update(
             @PathVariable Long postId,
             @PathVariable Long commentId,
-            @Parameter(hidden = true) @AuthenticationPrincipal User user,
+            @Parameter(hidden = true) @AuthenticationPrincipal BoardPrincipal user,
             @Valid @RequestBody CommentRequest request
     ) {
-        return commentService.update(postId, commentId, user, request);
+        return commentService.update(postId, commentId, user.getId(), request);
     }
 
     @DeleteMapping("/{commentId}")
@@ -84,9 +84,9 @@ public class CommentController {
     public ResponseEntity<Void> delete(
             @PathVariable Long postId,
             @PathVariable Long commentId,
-            @Parameter(hidden = true) @AuthenticationPrincipal User user
+            @Parameter(hidden = true) @AuthenticationPrincipal BoardPrincipal user
     ) {
-        commentService.delete(postId, commentId, user);
+        commentService.delete(postId, commentId, user.getId());
         return ResponseEntity.noContent().build();
     }
 }

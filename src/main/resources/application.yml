@@ -13,6 +13,39 @@ spring:
 app:
   storage:
     location: ${APP_STORAGE_LOCATION:./uploads}
+  oauth:
+    google:
+      enabled: ${GOOGLE_LOGIN_ENABLED:false}
+      client-id: ${GOOGLE_CLIENT_ID:}
+      client-secret: ${GOOGLE_CLIENT_SECRET:}
+      redirect-uri: ${GOOGLE_REDIRECT_URI:http://localhost:8080/login/oauth2/code/google}
+
+logging:
+  level:
+    # Keep request bodies and rejected password values out of Spring MVC debug/trace logs.
+    org.springframework.web: INFO
+    # Authorization codes, state and provider tokens must not appear in debug/trace logs.
+    org.springframework.security: INFO
+
+management:
+  endpoints:
+    access:
+      default: none
+      max-permitted: read-only
+    web:
+      base-path: /actuator
+      exposure:
+        include: health
+      discovery:
+        enabled: false
+    jmx:
+      exposure:
+        exclude: "*"
+  endpoint:
+    health:
+      access: read-only
+      show-details: never
+      show-components: never
 
 server:
   port: 8080

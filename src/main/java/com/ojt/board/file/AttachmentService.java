@@ -1,10 +1,13 @@
 package com.ojt.board.file;
 
 import com.ojt.board.global.ResourceNotFoundException;
+import com.ojt.board.global.EditConflictException;
 import com.ojt.board.post.Post;
 import com.ojt.board.post.PostRepository;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.Resource;
@@ -38,6 +41,10 @@ public class AttachmentService {
     public List<AttachmentResponse> upload(Long postId, Long actorId, List<MultipartFile> files) {
         Post post = requireLockedPost(postId);
         post.requireAuthor(actorId);
+        return storeFiles(post, files);
+    }
+
+    private List<AttachmentResponse> storeFiles(Post post, List<MultipartFile> files) {
         validateBatch(files);
         List<Attachment> attachments = new ArrayList<>();
         for (MultipartFile file : files) {
@@ -49,6 +56,30 @@ public class AttachmentService {
         // Flush here so database failures reach the caller and trigger rollback cleanup.
         return attachmentRepository.saveAllAndFlush(attachments).stream()
                 .map(AttachmentResponse::from).toList();
+    }
+
+    /** The caller must hold the post write lock and verify the author inside its edit transaction. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void editForPost(Post post, List<Long> originalIds, List<Long> deletedIds, List<MultipartFile> files) {
+        Set<Long> expected = new HashSet<>(originalIds);
+        Set<Long> deleted = new HashSet<>(deletedIds);
+        if (!expected.containsAll(deleted)) {
+            throw new IllegalArgumentException("삭제할 파일은 처음 조회한 첨부파일 목록에 있어야 합니다.");
+        }
+        List<Attachment> current = attachmentRepository.findByPostIdOrderByIdAsc(post.getId());
+        Set<Long> currentIds = new HashSet<>();
+        current.forEach(attachment -> currentIds.add(attachment.getId()));
+        if (!currentIds.equals(expected)) {
+            throw new EditConflictException();
+        }
+        List<Attachment> removed = current.stream().filter(attachment -> deleted.contains(attachment.getId())).toList();
+        if (!removed.isEmpty()) {
+            attachmentRepository.deleteAll(removed);
+            removeAfterCommit(removed.stream().map(Attachment::getStoredFilename).toList());
+        }
+        if (files != null && !files.isEmpty()) {
+            storeFiles(post, files);
+        }
     }
 
     public Download download(Long fileId) {

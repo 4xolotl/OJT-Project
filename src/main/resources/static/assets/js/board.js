@@ -1,4 +1,6 @@
-import { announcePending, element, setupPendingActions } from './ui.js';
+import { request } from './api.js';
+import { loginUrl, signupUrl, writeUrl } from './navigation.js';
+import { element, notify } from './ui.js';
 
 const form = document.getElementById('search-form');
 const search = document.getElementById('search');
@@ -7,6 +9,7 @@ const results = document.getElementById('results');
 const list = document.getElementById('post-list');
 const statePanel = document.getElementById('list-state');
 const stateAction = document.getElementById('state-action');
+const stateWrite = document.getElementById('state-write');
 const summary = document.getElementById('list-summary');
 const count = document.getElementById('post-count');
 const pager = document.getElementById('pagination');
@@ -15,6 +18,93 @@ const numberFormat = new Intl.NumberFormat('ko-KR');
 const dateFormat = new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' });
 let state;
 let currentRequest;
+let user = null;
+let sessionFailed = false;
+let sessionRequest;
+let loggingOut = false;
+let sessionRefreshPending = false;
+
+function updateNavigationLinks() {
+  document.querySelectorAll('[data-login-link]').forEach(link => { link.href = loginUrl(); });
+  document.querySelectorAll('[data-signup-link]').forEach(link => { link.href = signupUrl(); });
+  document.querySelectorAll('[data-write-link]').forEach(link => { link.href = writeUrl(); });
+}
+
+function renderAccount() {
+  const account = document.getElementById('account-actions');
+  account.replaceChildren();
+  account.setAttribute('aria-busy', String(Boolean(sessionRequest) || loggingOut));
+  if (user) {
+    const name = element('span', 'session-name', `${user.nickname}님`);
+    name.title = user.nickname;
+    const logout = element('button', 'button button-outline button-small', loggingOut ? '로그아웃 중…' : '로그아웃');
+    logout.type = 'button';
+    logout.disabled = loggingOut;
+    logout.addEventListener('click', logoutUser);
+    account.append(name, logout);
+  } else {
+    if (sessionFailed) {
+      const retry = element('button', 'button button-ghost button-small', '로그인 상태 재확인');
+      retry.type = 'button';
+      retry.disabled = Boolean(sessionRequest);
+      retry.title = '연결 문제로 로그인 상태를 확인하지 못했어요.';
+      retry.addEventListener('click', loadSession);
+      account.append(retry);
+    }
+    const login = element('a', 'button button-ghost button-small', '로그인');
+    login.dataset.loginLink = '';
+    login.href = loginUrl();
+    const signup = element('a', 'button button-outline button-small', '회원가입');
+    signup.dataset.signupLink = '';
+    signup.href = signupUrl();
+    account.append(login, signup);
+  }
+}
+
+async function loadSession() {
+  if (loggingOut) { sessionRefreshPending = true; return; }
+  if (sessionRequest) { sessionRefreshPending = true; return; }
+  const controller = new AbortController();
+  sessionRequest = controller;
+  document.getElementById('account-actions').setAttribute('aria-busy', 'true');
+  try {
+    const nextUser = await request('/api/auth/me', { signal: controller.signal });
+    if (sessionRequest !== controller) return;
+    user = nextUser;
+    sessionFailed = false;
+  } catch (error) {
+    if (sessionRequest !== controller) return;
+    user = null;
+    sessionFailed = error.status !== 401;
+  } finally {
+    if (sessionRequest === controller) {
+      sessionRequest = null;
+      renderAccount();
+      if (sessionRefreshPending) { sessionRefreshPending = false; loadSession(); }
+    }
+  }
+}
+
+async function logoutUser() {
+  if (loggingOut || !user) return;
+  loggingOut = true;
+  sessionRequest?.abort();
+  sessionRequest = null;
+  renderAccount();
+  try {
+    await request('/api/auth/logout', { method: 'POST' });
+    user = null;
+    sessionFailed = false;
+    notify('로그아웃했어요.');
+  } catch (error) {
+    notify(error.message || '로그아웃하지 못했어요. 다시 시도해 주세요.');
+    sessionRefreshPending = true;
+  } finally {
+    loggingOut = false;
+    renderAccount();
+    if (sessionRefreshPending) { sessionRefreshPending = false; loadSession(); }
+  }
+}
 
 function readState() {
   const params = new URLSearchParams(location.search);
@@ -37,6 +127,7 @@ function syncUrl(replace = false) {
   if (url !== `${location.pathname}${location.search}${location.hash}`) {
     history[replace ? 'replaceState' : 'pushState'](null, '', url);
   }
+  updateNavigationLinks();
 }
 
 function showState(title, description, actionLabel, action) {
@@ -47,6 +138,7 @@ function showState(title, description, actionLabel, action) {
   stateAction.hidden = !actionLabel;
   stateAction.textContent = actionLabel || '';
   stateAction.onclick = action || null;
+  stateWrite.hidden = true;
 }
 
 function formatDate(value) {
@@ -155,7 +247,9 @@ async function loadPosts(focusPage = false) {
         search.focus();
       });
     } else {
-      showState('아직 등록된 글이 없어요', '가장 먼저 새로운 이야기를 나눠보세요.', '첫 글 쓰기', () => announcePending('게시글 작성'));
+      showState('아직 등록된 글이 없어요', '가장 먼저 새로운 이야기를 나눠보세요.');
+      stateWrite.href = writeUrl();
+      stateWrite.hidden = false;
     }
     renderPagination(data, focusPage);
   } catch (error) {
@@ -181,8 +275,11 @@ sizeSelect.addEventListener('change', () => {
   syncUrl();
   loadPosts();
 });
-window.addEventListener('popstate', () => { state = readState(); loadPosts(); });
-setupPendingActions();
+window.addEventListener('popstate', () => { state = readState(); updateNavigationLinks(); loadPosts(); });
+window.addEventListener('focus', () => loadSession());
+window.addEventListener('pageshow', event => { if (event.persisted) loadSession(); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') loadSession(); });
 state = readState();
 syncUrl(true);
 loadPosts();
+loadSession();

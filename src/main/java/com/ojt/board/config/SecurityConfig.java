@@ -4,6 +4,8 @@ import java.util.List;
 import java.util.Map;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ojt.board.auth.oauth.GoogleOAuthConfigurer;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
@@ -28,6 +30,7 @@ import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfAuthenticationStrategy;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy;
 
 import jakarta.servlet.DispatcherType;
 
@@ -43,20 +46,30 @@ public class SecurityConfig {
     private final ObjectMapper objectMapper;
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http,
+                                                   ObjectProvider<GoogleOAuthConfigurer> googleOAuth) throws Exception {
         http
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(csrfTokenRepository())
                         .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
                 )
                 .securityContext(context -> context.securityContextRepository(securityContextRepository()))
+                .headers(headers -> headers.referrerPolicy(referrer -> referrer.policy(ReferrerPolicy.NO_REFERRER)))
+                .sessionManagement(session -> session.sessionAuthenticationStrategy(sessionAuthenticationStrategy()))
                 .requestCache(cache -> cache.disable())
                 .authorizeHttpRequests(auth -> auth
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
+                        .requestMatchers(HttpMethod.GET, "/actuator/health").permitAll()
+                        .requestMatchers(HttpMethod.HEAD, "/actuator/health").permitAll()
+                        .requestMatchers("/actuator", "/actuator/**").denyAll()
                         .requestMatchers("/api/auth/signup", "/api/auth/login", "/api/auth/csrf").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/auth/providers", "/oauth2/authorization/google",
+                                "/login/oauth2/code/google").permitAll()
                         .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/", "/index.html", "/post.html", "/assets/**").permitAll()
-                        .requestMatchers(HttpMethod.HEAD, "/", "/index.html", "/post.html", "/assets/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/", "/index.html", "/post.html", "/login.html",
+                                "/signup.html", "/write.html", "/edit.html", "/assets/**").permitAll()
+                        .requestMatchers(HttpMethod.HEAD, "/", "/index.html", "/post.html", "/login.html",
+                                "/signup.html", "/write.html", "/edit.html", "/assets/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/posts", "/api/posts/**", "/api/files/*/download").permitAll()
                         .anyRequest().authenticated()
                 )
@@ -82,12 +95,14 @@ public class SecurityConfig {
                         .deleteCookies("JSESSIONID")
                         .logoutSuccessHandler(new HttpStatusReturningLogoutSuccessHandler(HttpStatus.NO_CONTENT))
                 );
+        GoogleOAuthConfigurer configurer = googleOAuth.getIfAvailable();
+        if (configurer != null) configurer.configure(http);
         return http.build();
     }
 
     @Bean
     public UserDetailsService userDetailsService() {
-        return email -> userRepository.findByEmail(email)
+        return email -> userRepository.findByEmailAndPasswordIsNotNull(email)
                 .orElseThrow(() -> new UsernameNotFoundException("사용자를 찾을 수 없습니다."));
     }
 

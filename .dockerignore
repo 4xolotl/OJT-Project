@@ -6,5 +6,11 @@ build
 *.iml
 .env
 .env.*
+client_secret*.json
+**/client_secret*.json
+docs/OAUTH2.md
+docs/ACTUATOR.md
+docs/DEVELOPMENT_CHECKLIST.md
+docs/GOOGLE_OAUTH_SETUP.md
 uploads
 *.log

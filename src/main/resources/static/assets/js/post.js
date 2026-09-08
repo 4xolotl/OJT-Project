@@ -1,5 +1,6 @@
-import { request, currentUser } from './api.js';
-import { element, notify, announcePending, setupPendingActions, confirmAction, listUrl } from './ui.js';
+import { request } from './api.js';
+import { editUrl, loginUrl, signupUrl } from './navigation.js';
+import { element, notify, confirmAction, listUrl } from './ui.js';
 
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -11,15 +12,17 @@ const dateFormat = new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: '2
 let post;
 let user = null;
 let sessionFailed = false;
+let sessionRequest;
+let sessionRefreshPending = false;
 let comments;
 let commentPage = 0;
 let commentsLoading = false;
 let commentRequest;
 let editingId = null;
 let busy = false;
+let editNavigationPending = false;
 
 document.querySelectorAll('[data-list-link]').forEach(link => { link.href = backUrl; });
-setupPendingActions();
 
 function formatDate(value) {
   const date = new Date(value);
@@ -29,20 +32,75 @@ function formatDate(value) {
 function avatar(name) { return Array.from(name || '?')[0]; }
 function owns(author) { return Boolean(user && author.id === user.id); }
 
+function hasDraft() { return Boolean($('comment-content').value || editingId !== null); }
+
+function updateAuthLinks() {
+  document.querySelectorAll('[data-login-link], [data-signup-link]').forEach(link => {
+    const signingUp = link.dataset.signupLink !== undefined;
+    const label = signingUp ? '회원가입' : '로그인';
+    if (preview || busy) {
+      link.removeAttribute('href');
+      link.setAttribute('tabindex', '-1');
+    } else {
+      link.href = signingUp ? signupUrl() : loginUrl();
+      link.removeAttribute('tabindex');
+    }
+    link.rel = 'noopener';
+    link.setAttribute('aria-disabled', String(preview || busy));
+    if (hasDraft()) {
+      link.target = '_blank';
+      link.title = `작성 중인 댓글을 유지하고 새 탭에서 ${label}`;
+      link.setAttribute('aria-label', `${label} (새 탭에서 열림)`);
+    } else {
+      link.removeAttribute('target');
+      link.removeAttribute('title');
+      link.removeAttribute('aria-label');
+    }
+  });
+}
+
+document.addEventListener('click', event => {
+  const link = event.target.closest('[data-login-link], [data-signup-link]');
+  if (!link) return;
+  if (preview || busy) { event.preventDefault(); return; }
+  updateAuthLinks();
+  if (hasDraft()) notify(link.dataset.signupLink !== undefined
+    ? '새 탭에서 회원가입하고 로그인한 뒤 이 화면으로 돌아오세요. 작성한 내용은 그대로 유지돼요.'
+    : '새 탭에서 로그인한 뒤 이 화면으로 돌아오세요. 작성한 내용은 그대로 유지돼요.');
+});
+
 function refreshControls() {
   document.querySelectorAll('[data-auth-action]').forEach(button => { button.disabled = busy || preview || !user; });
   document.querySelectorAll('[data-comment-action]').forEach(button => { button.disabled = busy || commentsLoading || preview || !user; });
   document.querySelectorAll('[data-author-id]').forEach(button => { button.disabled = busy || preview || !user || button.dataset.authorId !== String(user.id); });
   $('comment-content').disabled = busy || preview || !user;
-  $('post-edit').disabled = busy || preview;
+  const editDisabled = busy || preview || editNavigationPending || !owns(post?.author ?? {});
+  $('post-edit').setAttribute('aria-disabled', String(editDisabled));
+  if (editDisabled) {
+    $('post-edit').removeAttribute('href');
+    $('post-edit').setAttribute('tabindex', '-1');
+  } else {
+    $('post-edit').href = editUrl(postId);
+    $('post-edit').removeAttribute('tabindex');
+  }
   $('comment-previous').disabled = busy || commentsLoading || editingId !== null || !comments || comments.first;
   $('comment-next').disabled = busy || commentsLoading || editingId !== null || !comments || comments.last;
   $('comment-retry').disabled = busy || commentsLoading || editingId !== null;
   $('comment-refresh').disabled = busy || commentsLoading || editingId !== null;
+  $('session-retry').disabled = busy || Boolean(sessionRequest);
   $('comment-submit').textContent = busy ? '처리 중…' : '댓글 등록';
+  updateAuthLinks();
 }
 
-function setBusy(value) { busy = value; refreshControls(); }
+function setBusy(value) {
+  busy = value;
+  if (value) {
+    sessionRequest?.abort();
+    sessionRequest = null;
+  }
+  refreshControls();
+  if (!value && sessionRefreshPending) { sessionRefreshPending = false; loadSession(); }
+}
 
 function renderAccount() {
   const container = $('account-actions');
@@ -56,18 +114,29 @@ function renderAccount() {
     logout.addEventListener('click', logoutUser);
     container.append(name, logout);
   } else {
-    ['로그인', '회원가입'].forEach((label, index) => {
-      const button = element('button', `button button-small ${index ? 'button-outline' : 'button-ghost'}`, label);
-      button.type = 'button';
-      button.title = `${label} 화면 준비 중`;
-      button.addEventListener('click', () => announcePending(label));
-      container.append(button);
-    });
+    const login = element(preview ? 'button' : 'a', 'button button-ghost button-small', '로그인');
+    if (preview) {
+      login.type = 'button';
+      login.disabled = true;
+      login.title = '미리보기에서는 로그인할 수 없어요.';
+    } else {
+      login.dataset.loginLink = '';
+    }
+    const signup = element(preview ? 'button' : 'a', 'button button-outline button-small', '회원가입');
+    if (preview) {
+      signup.type = 'button';
+      signup.disabled = true;
+      signup.title = '미리보기에서는 회원가입할 수 없어요.';
+    } else {
+      signup.dataset.signupLink = '';
+    }
+    container.append(login, signup);
   }
+  updateAuthLinks();
 }
 
 function renderPermissions() {
-  $('post-owner-actions').hidden = !preview && !owns(post.author);
+  $('post-owner-actions').hidden = !preview && !owns(post?.author ?? {});
   $('comment-guest').hidden = preview || Boolean(user);
   // Keep a failed or expired-session draft in the DOM, even after authentication changes.
   $('comment-form').hidden = !preview && !user && !$('comment-content').value;
@@ -76,6 +145,9 @@ function renderPermissions() {
   $('comment-login').hidden = sessionFailed;
   $('session-retry').hidden = preview || Boolean(user);
   $('session-retry').textContent = sessionFailed ? '다시 확인' : '로그인 상태 확인';
+  document.querySelectorAll('[data-owner-controls]').forEach(node => {
+    node.hidden = !user || node.dataset.ownerId !== String(user.id) || node.dataset.commentId === String(editingId);
+  });
   refreshControls();
 }
 
@@ -83,6 +155,7 @@ function reportError(error, target) {
   let message = error.message || '요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요.';
   if (error.status === 401) {
     user = null;
+    sessionFailed = false;
     message = '로그인이 만료됐어요. 작성한 내용은 유지됩니다. 다시 로그인한 뒤 확인해 주세요.';
     renderAccount();
     renderPermissions();
@@ -163,13 +236,29 @@ async function loadFiles() {
 }
 
 async function loadSession() {
-  $('session-retry').disabled = true;
-  try { user = await currentUser(); sessionFailed = false; }
-  catch { user = null; sessionFailed = true; }
-  finally { $('session-retry').disabled = false; }
-  renderAccount();
-  renderPermissions();
-  if (comments && editingId === null) renderComments();
+  if (preview) return;
+  if (busy || sessionRequest) { sessionRefreshPending = true; return; }
+  const controller = new AbortController();
+  sessionRequest = controller;
+  refreshControls();
+  try {
+    const nextUser = await request('/api/auth/me', { signal: controller.signal });
+    if (controller !== sessionRequest) return;
+    user = nextUser;
+    sessionFailed = false;
+  } catch (error) {
+    if (controller !== sessionRequest) return;
+    user = null;
+    sessionFailed = error.status !== 401;
+  } finally {
+    if (controller === sessionRequest) {
+      sessionRequest = null;
+      renderAccount();
+      // Authentication refresh only updates permissions, preserving comment DOM and drafts.
+      renderPermissions();
+      if (sessionRefreshPending) { sessionRefreshPending = false; loadSession(); }
+    }
+  }
 }
 
 function commentButton(label, callback, danger = false) {
@@ -201,9 +290,12 @@ function renderComments() {
     meta.append(time);
     const content = element('p', 'comment-content', comment.content);
     main.append(meta, content);
-    if (!preview && owns(comment.author)) {
+    if (!preview) {
       const actions = element('div', 'comment-actions');
       actions.dataset.ownerControls = '';
+      actions.dataset.ownerId = String(comment.author.id);
+      actions.dataset.commentId = String(comment.id);
+      actions.hidden = !owns(comment.author);
       actions.append(commentButton('수정', () => editComment(comment, main, content, actions)), commentButton('삭제', () => deleteComment(comment), true));
       main.append(actions);
     }
@@ -250,7 +342,7 @@ async function loadComments(page = commentPage, lastPage = false) {
 
 function canMutate() {
   if (preview || busy) return false;
-  if (!user) { notify('로그인이 필요해요. 로그인 화면은 준비 중이에요.'); return false; }
+  if (!user) { notify('로그인이 필요해요. 로그인한 뒤 다시 시도해 주세요.'); return false; }
   return true;
 }
 
@@ -280,10 +372,13 @@ $('comment-form').addEventListener('submit', async event => {
   } catch (error) { reportError(error, errorNode); }
   finally { setBusy(false); }
 });
-$('comment-content').addEventListener('input', () => { $('comment-length').textContent = `${$('comment-content').value.length.toLocaleString('ko-KR')} / 2,000`; });
+$('comment-content').addEventListener('input', () => {
+  $('comment-length').textContent = `${$('comment-content').value.length.toLocaleString('ko-KR')} / 2,000`;
+  updateAuthLinks();
+});
 
 function editComment(comment, main, content, actions) {
-  if (!canMutate()) return;
+  if (!canMutate() || !owns(comment.author)) return;
   if (commentsLoading) { notify('댓글을 불러온 뒤 수정해 주세요.'); return; }
   if (editingId !== null) { notify('수정 중인 댓글을 먼저 저장하거나 취소해 주세요.'); return; }
   editingId = comment.id;
@@ -340,10 +435,10 @@ function editComment(comment, main, content, actions) {
 }
 
 async function deleteComment(comment) {
-  if (!canMutate()) return;
+  if (!canMutate() || !owns(comment.author)) return;
   if (editingId !== null) { notify('수정 중인 댓글을 먼저 저장하거나 취소해 주세요.'); return; }
   if (!await confirmAction({ title: '댓글을 삭제할까요?', message: '삭제한 댓글은 되돌릴 수 없어요.' })) return;
-  if (!canMutate()) return;
+  if (!canMutate() || !owns(comment.author)) return;
   setBusy(true);
   try {
     await request(`/api/posts/${postId}/comments/${comment.id}`, { method: 'DELETE' });
@@ -356,12 +451,37 @@ async function deleteComment(comment) {
 async function deletePost() {
   if (!canMutate() || !owns(post.author)) return;
   if (!await confirmAction({ title: '게시글을 삭제할까요?', message: '이 글의 댓글과 첨부파일도 모두 삭제돼요.\n삭제한 내용은 되돌릴 수 없어요.', confirmLabel: '게시글 삭제' })) return;
-  if (!canMutate()) return;
+  if (!canMutate() || !owns(post.author)) return;
   setBusy(true);
   try {
     await request(`/api/posts/${postId}`, { method: 'DELETE' });
     location.assign(backUrl);
   } catch (error) { reportError(error); setBusy(false); }
+}
+
+async function navigateToEdit(event) {
+  if (preview || busy || editNavigationPending || !owns(post?.author ?? {})) {
+    event.preventDefault();
+    return;
+  }
+  // Opening another tab leaves the current draft intact; preserve native link behavior.
+  if (!hasDraft() || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey
+      || event.button !== undefined && event.button !== 0) return;
+  event.preventDefault();
+  editNavigationPending = true;
+  refreshControls();
+  try {
+    const confirmed = await confirmAction({
+      title: '게시글 수정으로 이동할까요?',
+      message: '저장하지 않은 댓글 내용은 사라져요. 게시글 수정 화면으로 이동할까요?',
+      confirmLabel: '수정 화면으로 이동', danger: false
+    });
+    if (!confirmed || preview || busy || !owns(post?.author ?? {})) return;
+    location.assign(editUrl(postId));
+  } finally {
+    editNavigationPending = false;
+    refreshControls();
+  }
 }
 
 async function logoutUser() {
@@ -372,11 +492,12 @@ async function logoutUser() {
   try {
     await request('/api/auth/logout', { method: 'POST' });
     user = null;
+    sessionFailed = false;
     renderAccount();
     renderPermissions();
     document.querySelectorAll('[data-owner-controls]').forEach(node => { node.hidden = true; });
     notify('로그아웃했어요.');
-  } catch (error) { reportError(error); }
+  } catch (error) { reportError(error); sessionRefreshPending = true; }
   finally { setBusy(false); }
 }
 
@@ -385,7 +506,7 @@ async function loadPage() {
   try {
     post = await request(`/api/posts/${postId}`);
     renderPost();
-    await Promise.allSettled([loadFiles(), loadComments(0), loadSession()]);
+    await Promise.allSettled([loadFiles(), loadComments(0)]);
   } catch (error) {
     if (error.status === 404) showPageState('게시글을 찾을 수 없어요', '삭제되었거나 존재하지 않는 글이에요. 목록에서 다른 이야기를 찾아보세요.');
     else showPageState('게시글을 불러오지 못했어요', '연결 상태를 확인한 뒤 다시 시도해 주세요.', true);
@@ -409,6 +530,7 @@ function renderPreview() {
 }
 
 $('post-delete').addEventListener('click', deletePost);
+$('post-edit').addEventListener('click', navigateToEdit);
 $('file-retry').addEventListener('click', () => { if (!preview) loadFiles(); });
 $('comment-retry').addEventListener('click', () => { if (!preview) loadComments(); });
 $('comment-refresh').addEventListener('click', () => { if (!preview && !busy) loadComments(); });
@@ -416,7 +538,12 @@ $('session-retry').addEventListener('click', () => { if (!preview) loadSession()
 $('comment-previous').addEventListener('click', () => { if (!preview && !busy && editingId === null && comments && !comments.first) loadComments(commentPage - 1); });
 $('comment-next').addEventListener('click', () => { if (!preview && !busy && editingId === null && comments && !comments.last) loadComments(commentPage + 1); });
 $('page-retry').addEventListener('click', () => { if (!preview) loadPage(); });
+window.addEventListener('focus', () => { if (!preview) loadSession(); });
+window.addEventListener('pageshow', event => { if (!preview && event.persisted) loadSession(); });
+document.addEventListener('visibilitychange', () => { if (!preview && document.visibilityState === 'visible') loadSession(); });
 
+renderAccount();
 if (preview) renderPreview();
 else if (!/^[1-9]\d{0,18}$/.test(postId) || BigInt(postId) > 9223372036854775807n) showPageState('올바르지 않은 게시글 주소예요', '목록에서 확인할 게시글을 선택해 주세요.');
 else loadPage();
+if (!preview) loadSession();

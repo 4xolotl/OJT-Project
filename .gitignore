@@ -7,6 +7,13 @@ build/
 .env
 .env.*
 !.env.example
+# OAuth client credentials downloaded from Google Cloud
+client_secret*.json
+# Local reference documents and work checklist
+/docs/OAUTH2.md
+/docs/ACTUATOR.md
+/docs/DEVELOPMENT_CHECKLIST.md
+/docs/GOOGLE_OAUTH_SETUP.md
 *.log
 uploads/
 .DS_Store
