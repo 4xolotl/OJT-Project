@@ -14,6 +14,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ojt.board.auth.AuthResponse;
 import com.ojt.board.user.User;
 import com.ojt.board.user.UserRepository;
+import com.ojt.board.user.UserRole;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
@@ -29,6 +30,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
@@ -47,6 +49,7 @@ class GoogleAccountServiceTest {
     @Autowired private GoogleAccountService accountService;
     @Autowired private UserRepository userRepository;
     @Autowired private ObjectMapper objectMapper;
+    @Autowired private JdbcTemplate jdbcTemplate;
     @MockitoSpyBean private OAuthAccountRepository oauthAccountRepository;
 
     @BeforeEach
@@ -64,6 +67,7 @@ class GoogleAccountServiceTest {
         assertEquals("google@example.com", stored.getEmail());
         assertEquals("Google 회원", stored.getNickname());
         assertNull(stored.getPassword());
+        assertEquals(UserRole.USER, stored.getRole());
         assertEquals(1, userRepository.count());
         assertEquals(1, oauthAccountRepository.count());
         OAuthAccount account = oauthAccountRepository.findByProviderAndSubject("google", "subject-one").orElseThrow();
@@ -149,6 +153,22 @@ class GoogleAccountServiceTest {
 
         assertEquals(Set.of("ROLE_USER"), principal.getAuthorities().stream()
                 .map(authority -> authority.getAuthority()).collect(Collectors.toSet()));
+    }
+
+    @Test
+    void subsequentGoogleLoginUsesRoleExplicitlyAssignedToLocalAccount() {
+        OidcUser providerUser = identity("local-admin", "admin@example.com", true, "담당자");
+        BoardOidcUser original = accountService.loadOrCreate(providerUser);
+        assertEquals(1, jdbcTemplate.update("UPDATE users SET role = ? WHERE id = ?", "ADMIN", original.getId()));
+
+        BoardOidcUser signedInAgain = accountService.loadOrCreate(providerUser);
+
+        assertEquals(original.getId(), signedInAgain.getId());
+        assertEquals(Set.of("ROLE_USER", "ROLE_ADMIN"), signedInAgain.getAuthorities().stream()
+                .map(authority -> authority.getAuthority()).collect(Collectors.toSet()));
+        assertEquals(Set.of("ROLE_USER"), original.getAuthorities().stream()
+                .map(authority -> authority.getAuthority()).collect(Collectors.toSet()));
+        assertEquals(1, userRepository.count());
     }
 
     @Test

@@ -6,7 +6,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import org.springframework.security.core.GrantedAuthority;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.core.oidc.OidcIdToken;
 import org.springframework.security.oauth2.core.oidc.OidcUserInfo;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
@@ -17,12 +16,15 @@ public final class BoardOidcUser implements OidcUser, BoardPrincipal {
     private final Long id;
     private final String email;
     private final String nickname;
+    private final List<GrantedAuthority> authorities;
     private final OidcUser delegate;
 
     public BoardOidcUser(User user, OidcUser delegate) {
         this.id = user.getId();
         this.email = user.getEmail();
         this.nickname = user.getNickname();
+        // Application roles come only from the local account, never provider claims or scopes.
+        this.authorities = List.copyOf(user.getAuthorities());
         this.delegate = delegate;
     }
 
@@ -33,8 +35,7 @@ public final class BoardOidcUser implements OidcUser, BoardPrincipal {
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
-        // Provider claims and scopes must never grant application roles.
-        return List.of(new SimpleGrantedAuthority("ROLE_USER"));
+        return authorities;
     }
 
     @Override public Map<String, Object> getClaims() { return delegate.getClaims(); }

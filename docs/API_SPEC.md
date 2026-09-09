@@ -188,7 +188,9 @@ GET /api/posts/1/comments?page=0&size=20
 
 ## 상태 확인
 
-`GET /actuator/health`는 정상일 때 `200`과 `status: UP`, DB·디스크 등의 상태 정보를 반환합니다. 장애 상태는 `503`을 반환합니다. `info`, `metrics`, `mappings`도 GET·HEAD 조회를 지원합니다.
+Actuator는 `ADMIN` 권한으로 로그인한 세션에서만 조회할 수 있습니다. 비로그인 요청은 `401`, 일반 회원 요청은 `403`을 반환합니다.
+
+`GET /actuator/health`는 정상일 때 `200`과 `status: UP`, DB·디스크 등의 상태 정보를 반환합니다. `DOWN`·`OUT_OF_SERVICE` 상태는 `503`을 반환합니다. `info`, `metrics`, `mappings`와 health 구성 요소·개별 지표도 GET·HEAD 조회를 지원합니다. 관리 동작을 변경하는 요청은 허용하지 않습니다.
 
 ## 오류 응답
 

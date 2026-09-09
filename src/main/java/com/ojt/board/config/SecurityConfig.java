@@ -61,9 +61,9 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**",
-                                "/actuator/info", "/actuator/metrics", "/actuator/metrics/**", "/actuator/mappings").permitAll()
+                                "/actuator/info", "/actuator/metrics", "/actuator/metrics/**", "/actuator/mappings").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.HEAD, "/actuator/health", "/actuator/health/**",
-                                "/actuator/info", "/actuator/metrics", "/actuator/metrics/**", "/actuator/mappings").permitAll()
+                                "/actuator/info", "/actuator/metrics", "/actuator/metrics/**", "/actuator/mappings").hasRole("ADMIN")
                         .requestMatchers("/actuator", "/actuator/**").denyAll()
                         .requestMatchers("/api/auth/signup", "/api/auth/login", "/api/auth/csrf").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/auth/providers", "/oauth2/authorization/google",

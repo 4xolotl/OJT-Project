@@ -53,11 +53,19 @@ docker compose logs -f app
 | 글쓰기 | http://localhost:8080/write.html |
 | Swagger UI | http://localhost:8080/swagger-ui.html |
 | OpenAPI JSON | http://localhost:8080/v3/api-docs |
-| 앱 상태 조회 | http://localhost:8080/actuator/health |
+| 앱 상태 조회 (ADMIN 로그인 필요) | http://localhost:8080/actuator/health |
 
 게시글 상세·수정 화면은 목록과 상세 화면의 버튼으로 이동합니다.
 앱 `8080`과 DB `3306` 포트는 호스트의 `127.0.0.1`에만 바인딩하며 같은 컴퓨터에서 접속합니다.
 해당 포트를 다른 프로그램이 사용 중이면 먼저 포트 충돌을 해소합니다.
+
+### Actuator 관리자 접근
+
+`health`, `info`, `metrics`, `mappings`는 `ADMIN` 권한으로 로그인한 세션에서만 조회할 수 있습니다.
+비로그인 요청은 `401`, 일반 회원 요청은 `403`을 반환합니다.
+신규·기존 회원의 기본 권한은 `USER`이며, 관리자는 자동 생성하지 않습니다.
+DB 관리자가 대상 회원의 `users.role`을 `ADMIN`으로 지정한 뒤 해당 회원이 다시 로그인하면 적용됩니다. Google 로그인도 같은 로컬 계정 권한을 사용합니다.
+권한을 회수할 때는 `USER`로 변경하고 앱을 재시작해 기존 로그인 세션도 종료합니다.
 
 ### Google 로그인 설정 (선택)
 
