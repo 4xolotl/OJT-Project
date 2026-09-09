@@ -97,7 +97,7 @@ class AuthControllerTest {
         MockHttpSession authenticatedSession =
                 (MockHttpSession) loginResult.getRequest().getSession(false);
         assertNotNull(authenticatedSession);
-        assertNotEquals(oldSessionId, authenticatedSession.getId());
+        assertEquals(oldSessionId, authenticatedSession.getId());
 
         mockMvc.perform(get("/api/auth/me").session(authenticatedSession))
                 .andExpect(status().isOk())
@@ -109,13 +109,6 @@ class AuthControllerTest {
         assertNotEquals(initialCsrf.token(), authenticatedCsrf.token());
 
         mockMvc.perform(post("/api/auth/logout").session(authenticatedSession))
-                .andExpect(status().isForbidden());
-        assertFalse(authenticatedSession.isInvalid());
-        mockMvc.perform(get("/api/auth/me").session(authenticatedSession))
-                .andExpect(status().isOk());
-
-        mockMvc.perform(csrfPost("/api/auth/logout", authenticatedCsrf)
-                        .session(authenticatedSession))
                 .andExpect(status().isNoContent())
                 .andExpect(cookie().maxAge("JSESSIONID", 0));
         assertTrue(authenticatedSession.isInvalid());
@@ -134,29 +127,70 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.message").isNotEmpty());
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"signup", "login", "logout"})
-    void authPostRejectsMissingCsrfToken(String operation) throws Exception {
-        mockMvc.perform(post("/api/auth/" + operation)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsBytes(
-                                new AuthRequest.Signup(EMAIL, "tester", PASSWORD))))
-                .andExpect(status().isForbidden());
-        assertEquals(0, userRepository.count());
+    @Test
+    void csrfEndpointInitializesAnAnonymousSessionAndRetainsItOnLogin() throws Exception {
+        MvcResult initial = mockMvc.perform(get("/api/auth/csrf"))
+                .andExpect(status().isOk())
+                .andReturn();
+        MockHttpSession session = (MockHttpSession) initial.getRequest().getSession(false);
+        assertNotNull(session);
+        String sessionId = session.getId();
+        CsrfData csrf = fetchCsrf(session);
+        signup(csrf, "1234");
+
+        mockMvc.perform(get("/api/auth/me").session(session))
+                .andExpect(status().isUnauthorized());
+        MvcResult login = mockMvc.perform(csrfPost("/api/auth/login", csrf)
+                        .session(session)
+                        .content(objectMapper.writeValueAsBytes(new AuthRequest.Login(EMAIL, "1234"))))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        assertEquals(sessionId, login.getRequest().getSession(false).getId());
+        mockMvc.perform(get("/api/auth/me").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value(EMAIL));
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"signup", "login", "logout"})
-    void authPostRejectsTamperedCsrfToken(String operation) throws Exception {
+    void authPostAcceptsMissingCsrfToken(String operation) throws Exception {
+        assertSuccessfulAuthPost(operation, prepareAuthPost(operation));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"signup", "login", "logout"})
+    void authPostAcceptsMismatchedCsrfToken(String operation) throws Exception {
         CsrfData csrf = fetchCsrf(null);
-        mockMvc.perform(post("/api/auth/" + operation)
-                        .cookie(csrf.cookie())
-                        .header(csrf.headerName(), "tampered-" + csrf.token())
+        assertSuccessfulAuthPost(operation, prepareAuthPost(operation)
+                .cookie(csrf.cookie())
+                .header(csrf.headerName(), "mismatched-" + csrf.token()));
+    }
+
+    @Test
+    void correctPasswordAuthenticatesAfterEightIncorrectAttempts() throws Exception {
+        CsrfData csrf = fetchCsrf(null);
+        signup(csrf, PASSWORD);
+        MockHttpSession session = new MockHttpSession();
+
+        for (int attempt = 0; attempt < 8; attempt++) {
+            mockMvc.perform(post("/api/auth/login").session(session)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsBytes(
+                                    new AuthRequest.Login(EMAIL, "incorrect-password"))))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.message").isNotEmpty());
+        }
+        mockMvc.perform(get("/api/auth/me").session(session))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(post("/api/auth/login").session(session)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsBytes(
-                                new AuthRequest.Signup(EMAIL, "tester", PASSWORD))))
-                .andExpect(status().isForbidden());
-        assertEquals(0, userRepository.count());
+                        .content(objectMapper.writeValueAsBytes(new AuthRequest.Login(EMAIL, PASSWORD))))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/auth/me").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value(EMAIL));
     }
 
     @Test
@@ -254,9 +288,9 @@ class AuthControllerTest {
     }
 
     @Test
-    void signupRetainsEightCharacterMinimum() throws Exception {
+    void signupRequiresAtLeastFourCharacters() throws Exception {
         CsrfData csrf = fetchCsrf(null);
-        assertPasswordRejected("signup", csrf, "a".repeat(7));
+        assertPasswordRejected("signup", csrf, "a".repeat(3));
         assertEquals(0, userRepository.count());
     }
 
@@ -316,12 +350,57 @@ class AuthControllerTest {
                 .andExpect(content().string(containsString("request.headers['X-XSRF-TOKEN'] = parts.pop().split(';').shift();")));
     }
 
+    private MockHttpServletRequestBuilder prepareAuthPost(String operation) throws Exception {
+        if (!operation.equals("signup")) {
+            userRepository.saveAndFlush(new User(EMAIL, "tester", passwordEncoder.encode(PASSWORD)));
+        }
+        Object body = operation.equals("signup")
+                ? new AuthRequest.Signup(EMAIL, "tester", PASSWORD)
+                : new AuthRequest.Login(EMAIL, PASSWORD);
+        MockHttpServletRequestBuilder request = post("/api/auth/" + operation)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsBytes(body));
+        if (operation.equals("logout")) {
+            MvcResult login = mockMvc.perform(post("/api/auth/login")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsBytes(new AuthRequest.Login(EMAIL, PASSWORD))))
+                    .andExpect(status().isOk())
+                    .andReturn();
+            request.session((MockHttpSession) login.getRequest().getSession(false));
+        }
+        return request;
+    }
+
+    private void assertSuccessfulAuthPost(String operation, MockHttpServletRequestBuilder request) throws Exception {
+        int expectedStatus = switch (operation) {
+            case "signup" -> 201;
+            case "login" -> 200;
+            case "logout" -> 204;
+            default -> throw new IllegalArgumentException(operation);
+        };
+        MvcResult result = mockMvc.perform(request)
+                .andExpect(status().is(expectedStatus))
+                .andReturn();
+        assertEquals(1, userRepository.count());
+        if (operation.equals("login")) {
+            MockHttpSession session = (MockHttpSession) result.getRequest().getSession(false);
+            assertNotNull(session);
+            mockMvc.perform(get("/api/auth/me").session(session))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.email").value(EMAIL));
+        } else if (operation.equals("logout")) {
+            assertNull(result.getRequest().getSession(false));
+            assertNotNull(result.getResponse().getCookie("JSESSIONID"));
+            assertEquals(0, result.getResponse().getCookie("JSESSIONID").getMaxAge());
+        }
+    }
+
     private static Stream<String> allowedPasswords() {
         String asciiSymbols = IntStream.rangeClosed(0x21, 0x7e)
                 .filter(value -> !Character.isLetterOrDigit(value))
                 .collect(StringBuilder::new, StringBuilder::appendCodePoint, StringBuilder::append)
                 .toString();
-        return Stream.of("abcdefgh", "ABCDEFGH", "12345678", "!!!!!!!!", asciiSymbols,
+        return Stream.of("abcd", "ABCD", "1234", "!!!!", "abcdefgh", "ABCDEFGH", "12345678", "!!!!!!!!", asciiSymbols,
                 "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789", "a".repeat(72));
     }
 

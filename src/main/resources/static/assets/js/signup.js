@@ -1,9 +1,9 @@
 import { ApiError, currentUser, request } from './api.js';
-import { loginUrl, safeReturnUrl } from './navigation.js';
+import { loginUrl, loginReturnUrl } from './navigation.js';
 import { guardPasswordTransfer, passwordError } from './password-policy.js';
 
 const $ = id => document.getElementById(id);
-const returnTo = safeReturnUrl(new URLSearchParams(location.search).get('returnTo'));
+const returnTo = loginReturnUrl(new URLSearchParams(location.search).get('returnTo'));
 const fields = ['email', 'nickname', 'password', 'password-confirm'];
 const passwordFields = ['password', 'password-confirm'];
 let busy = false;
@@ -93,7 +93,7 @@ async function signup(event) {
   if (nickname.length < 2 || nickname.length > 100) {
     reject('nickname', '닉네임을 2~100자로 입력해 주세요.');
   }
-  const passwordMessage = passwordError(password, 8);
+  const passwordMessage = passwordError(password, 4);
   if (passwordMessage) reject('password', passwordMessage);
   if (!confirmation) {
     reject('password-confirm', '비밀번호를 한 번 더 입력해 주세요.');

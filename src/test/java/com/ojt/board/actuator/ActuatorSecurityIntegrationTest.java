@@ -54,9 +54,9 @@ import org.springframework.test.web.servlet.MvcResult;
 class ActuatorSecurityIntegrationTest {
 
     private static final List<String> PRIVATE_PATHS = List.of(
-            "/actuator", "/actuator/", "/actuator/health/db", "/actuator/health/diskSpace",
+            "/actuator", "/actuator/",
             "/actuator/env", "/actuator/configprops", "/actuator/heapdump",
-            "/actuator/loggers", "/actuator/shutdown", "/actuator/metrics", "/actuator/info");
+            "/actuator/loggers", "/actuator/shutdown");
 
     @Autowired
     private MockMvc mockMvc;
@@ -83,11 +83,13 @@ class ActuatorSecurityIntegrationTest {
     private WebMvcEndpointHandlerMapping endpointMappings;
 
     @Test
-    void anonymousHealthReturnsOnlyOverallStatusWithoutCreatingSession() throws Exception {
+    void anonymousHealthReturnsComponentDetailsWithoutCreatingSession() throws Exception {
         ResponseEntity<JsonNode> response = restTemplate.getForEntity("/actuator/health", JsonNode.class);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(objectMapper.readTree("{\"status\":\"UP\"}"), response.getBody());
+        assertEquals("UP", response.getBody().path("status").asText());
+        assertEquals("H2", response.getBody().path("components").path("db").path("details").path("database").asText());
+        assertTrue(response.getBody().path("components").path("diskSpace").path("details").has("path"));
         assertFalse(response.getHeaders().getOrEmpty(HttpHeaders.SET_COOKIE).stream()
                 .anyMatch(cookie -> cookie.startsWith("JSESSIONID=")));
         MvcResult result = mockMvc.perform(get("/actuator/health"))
@@ -97,12 +99,12 @@ class ActuatorSecurityIntegrationTest {
 
     @Test
     @WithMockUser(roles = "USER")
-    void boardUserCannotRevealComponentsOrDetailsThroughHealthQueryParameters() throws Exception {
+    void boardUserReceivesComponentDetails() throws Exception {
         MvcResult response = mockMvc.perform(get("/actuator/health")
                         .param("showDetails", "always").param("showComponents", "always"))
                 .andExpect(status().isOk()).andReturn();
 
-        assertStatusOnly(response, "UP");
+        assertStatusAndComponents(response, "UP");
     }
 
     @Test
@@ -156,14 +158,15 @@ class ActuatorSecurityIntegrationTest {
     }
 
     @Test
-    void onlyHealthEndpointExistsAndOnlyHealthIsExposedOnWeb() {
+    void configuredReadEndpointsExistAndOtherEndpointsRemainUnavailable() {
         assertEquals(1, context.getBeansOfType(HealthEndpoint.class).size());
         for (Class<?> endpointType : List.of(EnvironmentEndpoint.class, ConfigurationPropertiesReportEndpoint.class,
-                HeapDumpWebEndpoint.class, LoggersEndpoint.class, ShutdownEndpoint.class,
-                MetricsEndpoint.class, InfoEndpoint.class)) {
+                HeapDumpWebEndpoint.class, LoggersEndpoint.class, ShutdownEndpoint.class)) {
             assertTrue(context.getBeansOfType(endpointType).isEmpty(), endpointType.getSimpleName());
         }
-        assertEquals(List.of("health"), webEndpoints.getEndpoints().stream()
+        assertEquals(1, context.getBeansOfType(MetricsEndpoint.class).size());
+        assertEquals(1, context.getBeansOfType(InfoEndpoint.class).size());
+        assertEquals(List.of("health", "info", "mappings", "metrics"), webEndpoints.getEndpoints().stream()
                 .map(endpoint -> endpoint.getEndpointId().toString()).sorted().toList());
         assertTrue(jmxEndpoints.stream().allMatch(supplier -> supplier.getEndpoints().isEmpty()));
         assertFalse(endpointMappings.getHandlerMethods().keySet().stream()
@@ -180,7 +183,7 @@ class ActuatorSecurityIntegrationTest {
     }
 
     @Test
-    void downIndicatorReturns503WithoutExposingDetailsToAnonymousOrBoardUser() throws Exception {
+    void downIndicatorReturns503WithDetailsToAnonymousAndBoardUser() throws Exception {
         String contributorName = "actuatorTestFailure";
         assertNull(healthContributors.getContributor(contributorName));
         healthContributors.registerContributor(contributorName, (HealthIndicator) () -> Health.down()
@@ -191,18 +194,34 @@ class ActuatorSecurityIntegrationTest {
         try {
             MvcResult anonymous = mockMvc.perform(get("/actuator/health"))
                     .andExpect(status().isServiceUnavailable()).andReturn();
-            assertStatusOnly(anonymous, "DOWN");
+            assertStatusAndComponents(anonymous, "DOWN");
             MvcResult authenticated = mockMvc.perform(get("/actuator/health").with(user("board-user").roles("USER")))
                     .andExpect(status().isServiceUnavailable()).andReturn();
-            assertStatusOnly(authenticated, "DOWN");
+            assertStatusAndComponents(authenticated, "DOWN");
         } finally {
             healthContributors.unregisterContributor(contributorName);
         }
         mockMvc.perform(get("/actuator/health")).andExpect(status().isOk());
     }
 
-    private void assertStatusOnly(MvcResult response, String expectedStatus) throws Exception {
+    @Test
+    void anonymousReadRequestsSupportConfiguredManagementEndpoints() throws Exception {
+        for (String path : List.of("/actuator/health/db", "/actuator/health/diskSpace",
+                "/actuator/info", "/actuator/metrics", "/actuator/metrics/jvm.memory.used", "/actuator/mappings")) {
+            mockMvc.perform(get(path)).andExpect(status().isOk());
+        }
+        mockMvc.perform(get("/actuator/mappings"))
+                .andExpect(jsonPath("$.contexts").isNotEmpty());
+    }
+
+    private void assertStatusAndComponents(MvcResult response, String expectedStatus) throws Exception {
         JsonNode body = objectMapper.readTree(response.getResponse().getContentAsByteArray());
-        assertEquals(objectMapper.createObjectNode().put("status", expectedStatus), body);
+        assertEquals(expectedStatus, body.path("status").asText());
+        assertTrue(body.path("components").has("db"));
+        assertTrue(body.path("components").has("diskSpace"));
+        if (expectedStatus.equals("DOWN")) {
+            assertEquals("test-only diagnostic detail", body.path("components").path("actuatorTestFailure")
+                    .path("details").path("error").asText());
+        }
     }
 }

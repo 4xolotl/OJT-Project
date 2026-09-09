@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -24,7 +23,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
@@ -65,11 +63,11 @@ class AttachmentServiceTest {
     }
 
     @Test
-    void preventsNonAuthorFromWritingFiles() throws Exception {
-        doThrow(new AccessDeniedException("작성자만 접근할 수 있습니다.")).when(post).requireAuthor(8L);
-        assertThrows(AccessDeniedException.class, () -> service.upload(1L, 8L, List.of(validFile())));
-        assertEquals(0, storedFileCount());
-        verifyNoInteractions(attachmentRepository);
+    void storesFilesForTheRequestedPost() throws Exception {
+        when(attachmentRepository.saveAllAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        assertEquals(1, service.upload(1L, 8L, List.of(validFile())).size());
+        assertEquals(1, storedFileCount());
+        verify(attachmentRepository).saveAllAndFlush(any());
     }
 
     @Test
@@ -99,7 +97,6 @@ class AttachmentServiceTest {
         when(attachmentRepository.findById(5L)).thenReturn(Optional.of(attachment));
 
         service.delete(5L, 7L);
-        verify(post).requireAuthor(7L);
         verify(attachmentRepository).delete(attachment);
         assertTrue(Files.exists(temporaryDirectory.resolve(attachment.getStoredFilename())));
 

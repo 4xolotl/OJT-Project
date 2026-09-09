@@ -65,7 +65,6 @@ public class PostService {
     @Transactional
     public PostResponse update(Long id, Long actorId, PostRequest request) {
         Post post = findForUpdate(id);
-        post.requireAuthor(actorId);
         post.update(request.title(), request.content());
         postRepository.flush();
         return PostResponse.from(post);
@@ -74,7 +73,6 @@ public class PostService {
     @Transactional
     public PostResponse updateWithFiles(Long id, Long actorId, PostEditRequest request, List<MultipartFile> files) {
         Post post = findForUpdate(id);
-        post.requireAuthor(actorId);
         if (!new HashSet<>(request.attachmentIds()).containsAll(request.deletedFileIds())) {
             throw new IllegalArgumentException("삭제할 파일은 처음 조회한 첨부파일 목록에 있어야 합니다.");
         }
@@ -94,7 +92,6 @@ public class PostService {
     @Transactional
     public void delete(Long id, Long actorId) {
         Post post = findForUpdate(id);
-        post.requireAuthor(actorId);
         attachmentService.deleteAllForPost(post);
         // Comment foreign keys use ON DELETE CASCADE. Physical files are removed after commit.
         postRepository.delete(post);

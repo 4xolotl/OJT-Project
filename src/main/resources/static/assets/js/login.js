@@ -1,10 +1,10 @@
 import { ApiError, currentUser, request } from './api.js';
-import { safeReturnUrl, signupUrl } from './navigation.js';
+import { loginReturnUrl, safeReturnUrl, signupUrl } from './navigation.js';
 import { guardPasswordTransfer, passwordError } from './password-policy.js';
 
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
-const returnTo = safeReturnUrl(params.get('returnTo'));
+const returnTo = loginReturnUrl(params.get('returnTo'));
 const googleAuthorizationUrl = '/oauth2/authorization/google';
 const oauthMessages = Object.freeze({
   cancelled: 'Google 로그인을 취소했어요. 다시 시도하거나 이메일로 로그인해 주세요.',
@@ -72,7 +72,7 @@ function googleLogin() {
   googleNavigating = true;
   setBusy(true);
   try {
-    location.assign(`${googleAuthorizationUrl}?returnTo=${encodeURIComponent(returnTo)}`);
+    location.assign(`${googleAuthorizationUrl}?returnTo=${encodeURIComponent(safeReturnUrl(returnTo))}`);
   } catch {
     googleNavigating = false;
     setBusy(false);

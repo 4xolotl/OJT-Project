@@ -2,7 +2,6 @@ package com.ojt.board.comment;
 
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -49,7 +48,6 @@ public class CommentService {
     public CommentResponse update(Long postId, Long commentId, Long actorId, CommentRequest request) {
         lockPost(postId);
         Comment comment = findComment(postId, commentId);
-        requireAuthor(comment, actorId);
         comment.updateContent(request.content());
         commentRepository.flush();
         return CommentResponse.from(comment);
@@ -59,7 +57,6 @@ public class CommentService {
     public void delete(Long postId, Long commentId, Long actorId) {
         lockPost(postId);
         Comment comment = findComment(postId, commentId);
-        requireAuthor(comment, actorId);
         commentRepository.delete(comment);
     }
 
@@ -73,9 +70,4 @@ public class CommentService {
                 .orElseThrow(() -> new ResourceNotFoundException("댓글을 찾을 수 없습니다."));
     }
 
-    private void requireAuthor(Comment comment, Long actorId) {
-        if (!comment.getAuthor().getId().equals(actorId)) {
-            throw new AccessDeniedException("댓글 작성자만 수정하거나 삭제할 수 있습니다.");
-        }
-    }
 }

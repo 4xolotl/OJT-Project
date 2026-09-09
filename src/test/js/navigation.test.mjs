@@ -16,7 +16,7 @@ await navigation.link(specifier => {
   return ui;
 });
 await navigation.evaluate();
-const { safeReturnUrl, loginUrl, signupUrl, writeUrl, editUrl } = navigation.namespace;
+const { safeReturnUrl, loginReturnUrl, loginUrl, signupUrl, writeUrl, editUrl } = navigation.namespace;
 
 const safeCases = [
   ['/', '/'],
@@ -67,13 +67,29 @@ for (const input of rejected) {
 const longKeyword = safeReturnUrl('/?keyword=' + 'a'.repeat(101));
 assert.equal(new URL(longKeyword, 'https://board.invalid').searchParams.get('keyword').length, 100);
 passed++;
-assert.equal(loginUrl('https://evil.example'), '/login.html?returnTo=%2F');
+for (const [input, expected] of [
+  ['https://example.org', 'https://example.org/'],
+  ['http://example.org/next?view=board#content', 'http://example.org/next?view=board#content'],
+  ['HTTPS://EXAMPLE.ORG/next', 'https://example.org/next'],
+  ['/post.html?id=5&preview=1#comments', '/post.html?id=5#comments'],
+  ['javascript:alert(1)', '/'],
+  ['data:text/html,content', '/'],
+  ['//example.org/', '/'],
+  ['https://', '/'],
+  ['https://example.org/\nnext', '/'],
+  ['https://example.org/\\next', '/'],
+  [null, '/']
+]) {
+  assert.equal(loginReturnUrl(input), expected, `Unexpected login destination: ${input}`);
+  passed++;
+}
+assert.equal(loginUrl('https://example.org'), '/login.html?returnTo=https%3A%2F%2Fexample.org%2F');
 passed++;
 assert.equal(loginUrl('/post.html?id=5#comments'), '/login.html?returnTo=%2Fpost.html%3Fid%3D5%23comments');
 passed++;
 assert.equal(loginUrl(), '/login.html?returnTo=%2Fpost.html%3Fid%3D17%26keyword%3DSpring%26page%3D2%26size%3D50%23comments');
 passed++;
-assert.equal(signupUrl('https://evil.example'), '/signup.html?returnTo=%2F');
+assert.equal(signupUrl('https://example.org'), '/signup.html?returnTo=https%3A%2F%2Fexample.org%2F');
 passed++;
 assert.equal(signupUrl('/post.html?id=5&preview=1#comments'), '/signup.html?returnTo=%2Fpost.html%3Fid%3D5%23comments');
 passed++;

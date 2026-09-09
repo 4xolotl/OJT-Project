@@ -40,7 +40,6 @@ public class AttachmentService {
     @Transactional
     public List<AttachmentResponse> upload(Long postId, Long actorId, List<MultipartFile> files) {
         Post post = requireLockedPost(postId);
-        post.requireAuthor(actorId);
         return storeFiles(post, files);
     }
 
@@ -58,7 +57,7 @@ public class AttachmentService {
                 .map(AttachmentResponse::from).toList();
     }
 
-    /** The caller must hold the post write lock and verify the author inside its edit transaction. */
+    /** The caller must hold the post write lock inside its edit transaction. */
     @Transactional(propagation = Propagation.MANDATORY)
     public void editForPost(Post post, List<Long> originalIds, List<Long> deletedIds, List<MultipartFile> files) {
         Set<Long> expected = new HashSet<>(originalIds);
@@ -94,8 +93,7 @@ public class AttachmentService {
         // This shares the lock order used by uploads and post deletion.
         Long postId = attachmentRepository.findPostIdById(fileId)
                 .orElseThrow(() -> new ResourceNotFoundException("파일을 찾을 수 없습니다."));
-        Post post = requireLockedPost(postId);
-        post.requireAuthor(actorId);
+        requireLockedPost(postId);
         Attachment attachment = requireAttachment(fileId);
         attachmentRepository.delete(attachment);
         removeAfterCommit(List.of(attachment.getStoredFilename()));

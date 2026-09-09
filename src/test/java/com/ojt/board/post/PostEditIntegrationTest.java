@@ -177,14 +177,21 @@ class PostEditIntegrationTest {
     }
 
     @Test
-    void differentAuthorCannotEditTextOrFiles() throws Exception {
+    void authenticatedUserCanEditTextAndFilesWithCurrentSnapshot() throws Exception {
         Fixture fixture = fixture(textFile("keep.txt"));
         User other = userRepository.save(new User("other@example.com", "다른 회원", PASSWORD_HASH));
         Map<String, Object> body = editBody(fixture);
         body.put("deletedFileIds", fixture.ids());
         mockMvc.perform(withCsrf(editRequest(fixture.post().id(), body, textFile("new.txt")).with(user(other))))
-                .andExpect(status().isForbidden());
-        assertOriginalPreserved(fixture);
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("수정 제목"))
+                .andExpect(jsonPath("$.content").value("수정 본문"))
+                .andExpect(jsonPath("$.author.id").value(author.getId()));
+        List<Attachment> attachments = attachmentRepository.findByPostIdOrderByIdAsc(fixture.post().id());
+        assertEquals(1, attachments.size());
+        assertEquals("new.txt", attachments.getFirst().getOriginalFilename());
+        assertEquals(1, storedFileCount());
+        assertFalse(attachmentRepository.existsById(fixture.ids().getFirst()));
     }
 
     @Test
@@ -196,11 +203,12 @@ class PostEditIntegrationTest {
     }
 
     @Test
-    void authenticatedWithoutCsrfCannotEdit() throws Exception {
+    void authenticatedSessionCanEditWithoutAdditionalHeader() throws Exception {
         Fixture fixture = fixture(textFile("keep.txt"));
         mockMvc.perform(editRequest(fixture.post().id(), editBody(fixture)).with(user(author)))
-                .andExpect(status().isForbidden());
-        assertOriginalPreserved(fixture);
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("수정 제목"));
+        assertEquals(1, attachmentRepository.findByPostIdOrderByIdAsc(fixture.post().id()).size());
     }
 
     @Test

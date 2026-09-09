@@ -14,6 +14,7 @@ client_secret*.json
 /docs/ACTUATOR.md
 /docs/DEVELOPMENT_CHECKLIST.md
 /docs/GOOGLE_OAUTH_SETUP.md
+/docs/local/
 *.log
 uploads/
 .DS_Store

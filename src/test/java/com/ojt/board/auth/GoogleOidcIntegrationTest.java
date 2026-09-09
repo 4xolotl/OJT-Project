@@ -144,7 +144,7 @@ class GoogleOidcIntegrationTest {
     }
 
     @Test
-    void validGoogleCallbackRotatesSessionAndCsrfAndSupportsAllBoardOwnershipChecks() throws Exception {
+    void validGoogleCallbackRotatesSessionAndCsrfAndSupportsBoardChangesAcrossAccounts() throws Exception {
         Identity identity = identity();
         try (Browser owner = browser(); Browser other = browser()) {
             String oldToken = csrf(owner);
@@ -168,8 +168,12 @@ class GoogleOidcIntegrationTest {
 
             String token = csrf(owner);
             assertNotEquals(oldToken, token);
-            assertEquals(403, owner.json("POST", "/api/posts", oldToken, post("stale")).statusCode());
-            assertEquals(403, owner.json("POST", "/api/posts", null, post("missing")).statusCode());
+            HttpResponse<byte[]> staleTokenPost = owner.json("POST", "/api/posts", oldToken, post("stale token"));
+            assertEquals(201, staleTokenPost.statusCode());
+            assertEquals(204, owner.json("DELETE", "/api/posts/" + body(staleTokenPost).path("id").asLong(), null, null).statusCode());
+            HttpResponse<byte[]> tokenlessPost = owner.json("POST", "/api/posts", null, post("missing token"));
+            assertEquals(201, tokenlessPost.statusCode());
+            assertEquals(204, owner.json("DELETE", "/api/posts/" + body(tokenlessPost).path("id").asLong(), null, null).statusCode());
             HttpResponse<byte[]> created = owner.json("POST", "/api/posts", token, post("Google 게시글"));
             assertEquals(201, created.statusCode());
             long postId = body(created).path("id").asLong();
@@ -186,17 +190,29 @@ class GoogleOidcIntegrationTest {
 
             assertEquals(302, complete(other, authorize(other, "/"), identity(), Defect.NONE).statusCode());
             String otherToken = csrf(other);
-            assertEquals(403, other.json("PUT", "/api/posts/" + postId, otherToken, post("denied")).statusCode());
-            assertEquals(403, other.json("DELETE", "/api/posts/" + postId, otherToken, null).statusCode());
-            assertEquals(403, other.json("PUT", "/api/posts/" + postId + "/comments/" + commentId, otherToken, Map.of("content", "denied")).statusCode());
-            assertEquals(403, other.json("DELETE", "/api/posts/" + postId + "/comments/" + commentId, otherToken, null).statusCode());
-            assertEquals(403, other.upload(postId, otherToken, bytes).statusCode());
-            assertEquals(403, other.json("DELETE", "/api/files/" + fileId, otherToken, null).statusCode());
+            HttpResponse<byte[]> otherPostUpdate = other.json("PUT", "/api/posts/" + postId, otherToken, post("다른 계정의 수정"));
+            assertEquals(200, otherPostUpdate.statusCode());
+            assertEquals("다른 계정의 수정", body(owner.get("/api/posts/" + postId)).path("title").asText());
+            assertEquals(userId, body(otherPostUpdate).path("author").path("id").asLong());
+            HttpResponse<byte[]> otherCommentUpdate = other.json("PUT", "/api/posts/" + postId + "/comments/" + commentId,
+                    otherToken, Map.of("content", "다른 계정의 댓글 수정"));
+            assertEquals(200, otherCommentUpdate.statusCode());
+            assertEquals("다른 계정의 댓글 수정", body(otherCommentUpdate).path("content").asText());
+            assertEquals(userId, body(otherCommentUpdate).path("author").path("id").asLong());
+            HttpResponse<byte[]> otherUpload = other.upload(postId, otherToken, bytes);
+            assertEquals(201, otherUpload.statusCode());
+            long otherFileId = body(otherUpload).get(0).path("id").asLong();
+            assertArrayEquals(bytes, owner.get("/api/files/" + otherFileId + "/download").body());
+            assertEquals(204, other.json("DELETE", "/api/files/" + fileId, otherToken, null).statusCode());
+            assertEquals(404, owner.get("/api/files/" + fileId + "/download").statusCode());
 
             assertEquals(200, owner.json("PUT", "/api/posts/" + postId, token, post("수정")).statusCode());
             assertEquals(200, owner.json("PUT", "/api/posts/" + postId + "/comments/" + commentId, token, Map.of("content", "수정 댓글")).statusCode());
-            assertEquals(204, owner.json("DELETE", "/api/posts/" + postId, token, null).statusCode());
-            assertEquals(404, other.get("/api/files/" + fileId + "/download").statusCode());
+            assertEquals(204, other.json("DELETE", "/api/posts/" + postId + "/comments/" + commentId, otherToken, null).statusCode());
+            assertEquals(404, owner.json("PUT", "/api/posts/" + postId + "/comments/" + commentId, token,
+                    Map.of("content", "삭제된 댓글 수정")).statusCode());
+            assertEquals(204, other.json("DELETE", "/api/posts/" + postId, otherToken, null).statusCode());
+            assertEquals(404, other.get("/api/files/" + otherFileId + "/download").statusCode());
             assertEquals(404, other.get("/api/posts/" + postId + "/comments").statusCode());
             try (var files = Files.list(STORAGE)) { assertEquals(0, files.count()); }
             assertEquals(204, owner.json("POST", "/api/auth/logout", token, null).statusCode());

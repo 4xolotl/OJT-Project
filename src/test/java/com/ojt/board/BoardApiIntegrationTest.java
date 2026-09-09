@@ -139,19 +139,22 @@ class BoardApiIntegrationTest {
     }
 
     @Test
-    void anotherUserCannotEditOrDeletePost() throws Exception {
+    void authenticatedUserCanUpdateAndDeletePostById() throws Exception {
         Actor author = registerAndLogin("author");
         Actor other = registerAndLogin("other");
         long postId = createPost(author, "Original", "Original content").path("id").asLong();
 
         mockMvc.perform(json(put("/api/posts/{id}", postId), other,
-                        Map.of("title", "Stolen", "content", "Changed")))
-                .andExpect(status().isForbidden());
-        mockMvc.perform(authenticate(delete("/api/posts/{id}", postId), other))
-                .andExpect(status().isForbidden());
+                        Map.of("title", "Updated", "content", "Changed")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.author.id").value(author.id()));
         mockMvc.perform(get("/api/posts/{id}", postId))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.title").value("Original"));
+                .andExpect(jsonPath("$.title").value("Updated"));
+        mockMvc.perform(authenticate(delete("/api/posts/{id}", postId), other))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(get("/api/posts/{id}", postId))
+                .andExpect(status().isNotFound());
     }
 
     @Test
@@ -168,14 +171,32 @@ class BoardApiIntegrationTest {
     }
 
     @Test
-    void authenticatedWritesWithoutCsrfAreRejectedBeforeChangingData() throws Exception {
+    void authenticatedJsonWritesAcceptSessionWithoutCsrfHeader() throws Exception {
         Fixture fixture = createFixture();
-        for (MockHttpServletRequestBuilder request : writeRequests(fixture)) {
-            mockMvc.perform(request.session(fixture.owner().session()))
-                    .andExpect(status().isForbidden());
-        }
+        MockHttpSession session = fixture.owner().session();
+        mockMvc.perform(put("/api/posts/{id}", fixture.postId()).session(session)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(Map.of("title", "Updated post", "content", "Updated body"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("Updated post"));
+        mockMvc.perform(post("/api/posts/{id}/comments", fixture.postId()).session(session)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(Map.of("content", "New comment"))))
+                .andExpect(status().isCreated());
+        mockMvc.perform(put("/api/posts/{postId}/comments/{id}", fixture.postId(), fixture.commentId()).session(session)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(Map.of("content", "Updated comment"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").value("Updated comment"));
+        mockMvc.perform(get("/api/posts/{id}", fixture.postId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("Updated post"));
+        mockMvc.perform(get("/api/posts/{id}/comments", fixture.postId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.content[0].content").value("Updated comment"));
         assertEquals(1, postRepository.count());
-        assertEquals(1, commentRepository.count());
+        assertEquals(2, commentRepository.count());
         assertEquals(1, attachmentRepository.count());
     }
 
@@ -257,6 +278,26 @@ class BoardApiIntegrationTest {
     }
 
     @Test
+    void keywordExpressionsAffectNativeSearchResults() throws Exception {
+        Actor author = registerAndLogin("searcher");
+        createPost(author, "First sample", "First body");
+        createPost(author, "Second sample", "Second body");
+
+        mockMvc.perform(get("/api/posts").param("keyword", "missinglookup"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(0));
+        mockMvc.perform(get("/api/posts").param("keyword", "missinglookup') OR 1=1 -- -"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.content.length()").value(2));
+        mockMvc.perform(get("/api/posts").param("keyword", "missinglookup') OR 1=2 -- -"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(0))
+                .andExpect(jsonPath("$.content.length()").value(0));
+        assertEquals(2, postRepository.count());
+    }
+
+    @Test
     void missingResourcesReturnNotFound() throws Exception {
         Actor author = registerAndLogin("author");
         long missing = Long.MAX_VALUE;
@@ -309,19 +350,23 @@ class BoardApiIntegrationTest {
     }
 
     @Test
-    void onlyCommentAuthorCanEditOrDeleteEvenWhenOtherUserOwnsPost() throws Exception {
+    void authenticatedUserCanUpdateAndDeleteCommentById() throws Exception {
         Actor postAuthor = registerAndLogin("postAuthor");
         Actor commentAuthor = registerAndLogin("commentAuthor");
+        Actor other = registerAndLogin("other");
         long postId = createPost(postAuthor, "Post", "Content").path("id").asLong();
         long commentId = createComment(commentAuthor, postId, "Readers comment").path("id").asLong();
 
-        mockMvc.perform(json(put("/api/posts/{postId}/comments/{id}", postId, commentId), postAuthor,
+        mockMvc.perform(json(put("/api/posts/{postId}/comments/{id}", postId, commentId), other,
                         Map.of("content", "Changed")))
-                .andExpect(status().isForbidden());
-        mockMvc.perform(authenticate(delete("/api/posts/{postId}/comments/{id}", postId, commentId), postAuthor))
-                .andExpect(status().isForbidden());
-        mockMvc.perform(authenticate(delete("/api/posts/{postId}/comments/{id}", postId, commentId), commentAuthor))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").value("Changed"))
+                .andExpect(jsonPath("$.author.id").value(commentAuthor.id()));
+        mockMvc.perform(authenticate(delete("/api/posts/{postId}/comments/{id}", postId, commentId), other))
                 .andExpect(status().isNoContent());
+        mockMvc.perform(get("/api/posts/{postId}/comments", postId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(0));
     }
 
     @Test
@@ -390,12 +435,13 @@ class BoardApiIntegrationTest {
                 .andExpect(jsonPath("$.length()").value(2));
         MvcResult download = mockMvc.perform(get("/api/files/{id}/download", fileId))
                 .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_PLAIN))
                 .andExpect(header().string("X-Content-Type-Options", "nosniff"))
                 .andReturn();
         assertArrayEquals(bytes, download.getResponse().getContentAsByteArray());
         ContentDisposition disposition = ContentDisposition.parse(
                 download.getResponse().getHeader(HttpHeaders.CONTENT_DISPOSITION));
-        assertEquals("attachment", disposition.getType());
+        assertEquals("inline", disposition.getType());
         assertEquals(filename, disposition.getFilename());
 
         mockMvc.perform(authenticate(delete("/api/files/{id}", fileId), author))
@@ -406,15 +452,19 @@ class BoardApiIntegrationTest {
     }
 
     @Test
-    void otherUsersCannotUploadToPostOrDeleteItsFiles() throws Exception {
+    void authenticatedUserCanUploadAndDeletePostFilesById() throws Exception {
         Fixture fixture = createFixture();
         Actor other = registerAndLogin("other");
         mockMvc.perform(uploadRequest(other, fixture.postId(), textFile("extra.txt", "Extra")))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isCreated());
+        assertEquals(2, attachmentRepository.count());
+        assertEquals(2, storedFileCount());
         mockMvc.perform(authenticate(delete("/api/files/{id}", fixture.fileId()), other))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isNoContent());
         assertEquals(1, attachmentRepository.count());
         assertEquals(1, storedFileCount());
+        mockMvc.perform(get("/api/files/{id}/download", fixture.fileId()))
+                .andExpect(status().isNotFound());
     }
 
     @Test

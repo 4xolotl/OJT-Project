@@ -52,6 +52,7 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(csrfTokenRepository())
                         .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
+                        .ignoringRequestMatchers("/api/**")
                 )
                 .securityContext(context -> context.securityContextRepository(securityContextRepository()))
                 .headers(headers -> headers.referrerPolicy(referrer -> referrer.policy(ReferrerPolicy.NO_REFERRER)))
@@ -59,8 +60,10 @@ public class SecurityConfig {
                 .requestCache(cache -> cache.disable())
                 .authorizeHttpRequests(auth -> auth
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
-                        .requestMatchers(HttpMethod.GET, "/actuator/health").permitAll()
-                        .requestMatchers(HttpMethod.HEAD, "/actuator/health").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**",
+                                "/actuator/info", "/actuator/metrics", "/actuator/metrics/**", "/actuator/mappings").permitAll()
+                        .requestMatchers(HttpMethod.HEAD, "/actuator/health", "/actuator/health/**",
+                                "/actuator/info", "/actuator/metrics", "/actuator/metrics/**", "/actuator/mappings").permitAll()
                         .requestMatchers("/actuator", "/actuator/**").denyAll()
                         .requestMatchers("/api/auth/signup", "/api/auth/login", "/api/auth/csrf").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/auth/providers", "/oauth2/authorization/google",
@@ -136,11 +139,16 @@ public class SecurityConfig {
     }
 
     @Bean
-    public SessionAuthenticationStrategy sessionAuthenticationStrategy() {
+    public CsrfAuthenticationStrategy csrfAuthenticationStrategy() {
         CsrfAuthenticationStrategy csrfStrategy = new CsrfAuthenticationStrategy(csrfTokenRepository());
         csrfStrategy.setRequestHandler(new CsrfTokenRequestAttributeHandler());
+        return csrfStrategy;
+    }
+
+    @Bean
+    public SessionAuthenticationStrategy sessionAuthenticationStrategy() {
         return new CompositeSessionAuthenticationStrategy(List.of(
-                new ChangeSessionIdAuthenticationStrategy(), csrfStrategy
+                new ChangeSessionIdAuthenticationStrategy(), csrfAuthenticationStrategy()
         ));
     }
 }

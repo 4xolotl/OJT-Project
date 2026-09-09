@@ -54,14 +54,18 @@ class BoardHttpSmokeTest {
         try (HttpClient client = HttpClient.newBuilder().cookieHandler(cookies)
                 .connectTimeout(Duration.ofSeconds(10)).build()) {
             String token = csrf(client);
+            String sessionId = cookies.getCookieStore().getCookies().stream()
+                    .filter(cookie -> cookie.getName().equals("JSESSIONID"))
+                    .findFirst().orElseThrow().getValue();
             HttpResponse<byte[]> signup = json(client, "POST", "/api/auth/signup", token,
                     Map.of("email", "http@example.com", "nickname", "HTTP 사용자", "password", "password123"));
             assertEquals(201, signup.statusCode());
             HttpResponse<byte[]> login = json(client, "POST", "/api/auth/login", token,
                     Map.of("email", "http@example.com", "password", "password123"));
             assertEquals(200, login.statusCode());
-            assertTrue(login.headers().allValues("Set-Cookie").stream()
-                    .anyMatch(header -> header.contains("JSESSIONID=") && header.contains("HttpOnly")));
+            assertEquals(sessionId, cookies.getCookieStore().getCookies().stream()
+                    .filter(cookie -> cookie.getName().equals("JSESSIONID"))
+                    .findFirst().orElseThrow().getValue());
             token = csrf(client);
 
             HttpResponse<byte[]> post = json(client, "POST", "/api/posts", token,
@@ -79,7 +83,7 @@ class BoardHttpSmokeTest {
                         .timeout(Duration.ofSeconds(20)).GET().build(), HttpResponse.BodyHandlers.ofByteArray());
                 assertEquals(200, download.statusCode());
                 assertEquals(new String(fileBytes, StandardCharsets.UTF_8), new String(download.body(), StandardCharsets.UTF_8));
-                assertTrue(download.headers().firstValue("Content-Disposition").orElseThrow().startsWith("attachment;"));
+                assertTrue(download.headers().firstValue("Content-Disposition").orElseThrow().startsWith("inline;"));
             }
 
             // MockMvc bypasses servlet multipart parsing; this request exercises Tomcat's real limit.
@@ -98,6 +102,36 @@ class BoardHttpSmokeTest {
             HttpResponse<byte[]> me = client.send(HttpRequest.newBuilder(uri("/api/auth/me"))
                     .timeout(Duration.ofSeconds(20)).GET().build(), HttpResponse.BodyHandlers.ofByteArray());
             assertEquals(401, me.statusCode());
+        }
+    }
+
+    @Test
+    void htmlFileIsReturnedWithItsExtensionMediaType() throws Exception {
+        CookieManager cookies = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
+        try (HttpClient client = HttpClient.newBuilder().cookieHandler(cookies).build()) {
+            String token = csrf(client);
+            assertEquals(201, json(client, "POST", "/api/auth/signup", token,
+                    Map.of("email", "file-view@example.com", "nickname", "파일 조회", "password", "1234")).statusCode());
+            assertEquals(200, json(client, "POST", "/api/auth/login", token,
+                    Map.of("email", "file-view@example.com", "password", "1234")).statusCode());
+            long postId = body(json(client, "POST", "/api/posts", token,
+                    Map.of("title", "HTML file", "content", "Browser view"))).path("id").asLong();
+            try {
+                byte[] bytes = "<!doctype html><script>document.title='file-view-ok'</script>".getBytes(StandardCharsets.UTF_8);
+                HttpResponse<byte[]> uploaded = multipart(client, postId, token, "view.html", bytes);
+                assertEquals(201, uploaded.statusCode());
+                long fileId = body(uploaded).get(0).path("id").asLong();
+                assertEquals("text/html", body(uploaded).get(0).path("contentType").asText());
+                HttpResponse<byte[]> downloaded = client.send(HttpRequest.newBuilder(uri("/api/files/" + fileId + "/download"))
+                        .GET().build(), HttpResponse.BodyHandlers.ofByteArray());
+                assertEquals(200, downloaded.statusCode());
+                assertTrue(downloaded.headers().firstValue("Content-Type").orElseThrow().startsWith("text/html"));
+                assertTrue(downloaded.headers().firstValue("Content-Disposition").orElseThrow().startsWith("inline;"));
+                assertEquals(new String(bytes, StandardCharsets.UTF_8), new String(downloaded.body(), StandardCharsets.UTF_8));
+            } finally {
+                assertEquals(204, json(client, "DELETE", "/api/posts/" + postId, token, null).statusCode());
+                json(client, "POST", "/api/auth/logout", token, null);
+            }
         }
     }
 

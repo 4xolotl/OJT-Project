@@ -35,7 +35,7 @@ management:
     web:
       base-path: /actuator
       exposure:
-        include: health
+        include: health,info,metrics,mappings
       discovery:
         enabled: false
     jmx:
@@ -44,10 +44,17 @@ management:
   endpoint:
     health:
       access: read-only
-      show-details: never
-      show-components: never
+      show-details: always
+      show-components: always
+    info:
+      access: read-only
+    metrics:
+      access: read-only
+    mappings:
+      access: read-only
 
 server:
+  address: 127.0.0.1
   port: 8080
   servlet:
     session:

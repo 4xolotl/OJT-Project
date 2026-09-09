@@ -153,7 +153,7 @@ await check('Nickname is trimmed and must remain between 2 and 100 characters', 
 });
 
 await check('Signup enforces printable ASCII length limits without requiring mixed categories', async () => {
-  for (const password of ['        ', '1234567', 'a'.repeat(73), 'password가', 'password🧪', 'Valid123\n', ' Valid123', 'Valid123 ']) {
+  for (const password of ['        ', '123', 'a'.repeat(73), 'password가', 'password🧪', 'Valid123\n', ' Valid123', 'Valid123 ']) {
     const page = await harness();
     page.fill({ password });
     await page.submit();
@@ -161,7 +161,7 @@ await check('Signup enforces printable ASCII length limits without requiring mix
     assert.equal(page.node('password').getAttribute('aria-invalid'), 'true');
     assert.equal(page.node('password').value, password);
   }
-  for (const password of ['12345678', 'a'.repeat(72), '!!!!!!!!', 'ABCDEFGH']) {
+  for (const password of ['1234', 'aaaa', 'AAAA', '!!!!', '12345678', 'a'.repeat(72), '!!!!!!!!', 'ABCDEFGH']) {
     const page = await harness();
     page.fill({ password });
     await page.submit();
@@ -282,7 +282,8 @@ await check('Duplicate submits and login navigation are blocked during signup', 
 
 await check('Signup redirects to login without auto-login, passwords in URLs, or browser storage', async () => {
   for (const [returnTo, expected] of [
-    ['https://evil.example/', '/'],
+    ['https://example.org/', 'https://example.org/'],
+    ['javascript:alert(1)', '/'],
     ['/post.html?id=9&keyword=Spring&page=2&size=50&preview=1#comments', '/post.html?id=9&keyword=Spring&page=2&size=50#comments']
   ]) {
     const page = await harness({ returnTo });

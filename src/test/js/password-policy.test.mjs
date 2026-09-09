@@ -22,13 +22,13 @@ check('Every printable non-space ASCII character, including all 32 symbols, is a
   assert.equal(symbols.length, 32);
   for (const character of printableAscii) {
     assert.equal(passwordError(character), '', `Login rejected ASCII code ${character.charCodeAt(0)}`);
-    assert.equal(passwordError(character.repeat(8), 8), '', `Signup rejected ASCII code ${character.charCodeAt(0)}`);
+    assert.equal(passwordError(character.repeat(4), 4), '', `Signup rejected ASCII code ${character.charCodeAt(0)}`);
   }
 });
 
 check('No lowercase, uppercase, digit or symbol combination is required', () => {
-  for (const password of ['aaaaaaaa', 'AAAAAAAA', '12345678', '!!!!!!!!', symbols.join('')]) {
-    assert.equal(passwordError(password, 8), '');
+  for (const password of ['aaaa', 'AAAA', '1234', '!!!!', symbols.join('')]) {
+    assert.equal(passwordError(password, 4), '');
   }
 });
 
@@ -39,12 +39,12 @@ check('Login defaults to 1-72 characters', () => {
   rejects('A'.repeat(73));
 });
 
-check('Signup accepts exactly 8-72 characters', () => {
-  rejects('', 8);
-  rejects('A'.repeat(7), 8);
-  assert.equal(passwordError('A'.repeat(8), 8), '');
-  assert.equal(passwordError('A'.repeat(72), 8), '');
-  rejects('A'.repeat(73), 8);
+check('Signup accepts exactly 4-72 characters', () => {
+  rejects('', 4);
+  rejects('A'.repeat(3), 4);
+  assert.equal(passwordError('A'.repeat(4), 4), '');
+  assert.equal(passwordError('A'.repeat(72), 4), '');
+  rejects('A'.repeat(73), 4);
 });
 
 check('Spaces, every ASCII control and DEL are rejected at any position without trimming', () => {
@@ -52,10 +52,10 @@ check('Spaces, every ASCII control and DEL are rejected at any position without 
     const character = String.fromCharCode(code);
     for (const password of [character + 'Valid123', 'Valid' + character + '123', 'Valid123' + character]) {
       rejects(password);
-      rejects(password, 8);
+      rejects(password, 4);
     }
   }
-  rejects('Valid123\r\n', 8);
+  rejects('Valid123\r\n', 4);
 });
 
 check('Unicode whitespace, invisible marks, fullwidth forms, accents, Hangul and emoji are rejected', () => {
@@ -65,7 +65,7 @@ check('Unicode whitespace, invisible marks, fullwidth forms, accents, Hangul and
   ];
   for (const character of forbidden) {
     rejects('Valid123' + character);
-    rejects('Valid123' + character, 8);
+    rejects('Valid123' + character, 4);
   }
 });
 

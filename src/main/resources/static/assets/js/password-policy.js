@@ -7,7 +7,7 @@ export function passwordError(value, minimumLength = 1) {
     return '비밀번호는 영문 대소문자, 숫자, 허용된 특수문자만 사용할 수 있어요. 공백은 사용할 수 없어요.';
   }
   if (value.length < minimumLength || value.length > 72) {
-    return minimumLength === 8 ? '비밀번호를 8~72자로 입력해 주세요.' : '비밀번호는 72자까지 입력할 수 있어요.';
+    return minimumLength > 1 ? `비밀번호를 ${minimumLength}~72자로 입력해 주세요.` : '비밀번호는 72자까지 입력할 수 있어요.';
   }
   return '';
 }

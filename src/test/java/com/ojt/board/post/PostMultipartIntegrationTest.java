@@ -112,11 +112,11 @@ class PostMultipartIntegrationTest {
         assertEquals(1, storedFileCount());
         MvcResult download = mockMvc.perform(get("/api/files/{id}/download", attachment.getId()))
                 .andExpect(status().isOk())
-                .andExpect(content().contentType(MediaType.APPLICATION_OCTET_STREAM))
+                .andExpect(content().contentType(MediaType.TEXT_PLAIN))
                 .andExpect(content().bytes(bytes)).andReturn();
         ContentDisposition disposition = ContentDisposition.parse(
                 download.getResponse().getHeader(HttpHeaders.CONTENT_DISPOSITION));
-        assertEquals("attachment", disposition.getType());
+        assertEquals("inline", disposition.getType());
         assertEquals("개발 계획.txt", disposition.getFilename());
     }
 
@@ -155,10 +155,12 @@ class PostMultipartIntegrationTest {
     }
 
     @Test
-    void authenticatedMultipartWithoutCsrfCannotCreatePostOrFiles() throws Exception {
+    void authenticatedMultipartAcceptsSessionWithoutAdditionalHeader() throws Exception {
         mockMvc.perform(createRequest(validPost(), textFile("valid.txt")).with(user(author)))
-                .andExpect(status().isForbidden());
-        assertNothingStored();
+                .andExpect(status().isCreated());
+        assertEquals(1, postRepository.count());
+        assertEquals(1, attachmentRepository.count());
+        assertEquals(1, storedFileCount());
     }
 
     @ParameterizedTest

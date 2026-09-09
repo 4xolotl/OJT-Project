@@ -1,6 +1,6 @@
 // Run: node --experimental-vm-modules src/test/js/post.test.mjs
 // Executes the real post/navigation/UI modules with a small DOM and an API double.
-// Browser layout, native picker/constraint validation, and BFCache eligibility are not simulated.
+// Browser HTML parsing, layout, native picker/constraint validation, and BFCache eligibility are not simulated.
 import assert from 'node:assert/strict';
 import { Blob, File } from 'node:buffer';
 import { readFile } from 'node:fs/promises';
@@ -33,7 +33,7 @@ class MockApiError extends Error {
   }
 }
 
-async function harness({ session = async () => authenticated, loadPost = async () => ({ ...initialPost }), loadFiles = async () => initialFiles.map(file => ({ ...file })), mutate = async () => ({ ...initialPost }), query = '?id=7' } = {}) {
+async function harness({ session = async () => authenticated, loadPost = async () => ({ ...initialPost }), loadFiles = async () => initialFiles.map(file => ({ ...file })), loadComments = async () => ({ content: [], totalElements: 0, totalPages: 0, page: 0, size: 10, first: true, last: true }), mutate = async () => ({ ...initialPost }), query = '?id=7' } = {}) {
   const ids = new Map();
   const requests = [], redirects = [], storageWrites = [];
   const events = new Map(), documentEvents = new Map();
@@ -61,7 +61,11 @@ async function harness({ session = async () => authenticated, loadPost = async (
       hidden: attributes.has('hidden'), disabled: attributes.has('disabled'),
       get textContent() { return this.children.length ? this.children.map(child => child.textContent).join('') : this.text ?? ''; },
       set textContent(value) { this.replaceChildren(); this.text = String(value); },
-      set innerHTML(value) { assert.fail(`Unexpected HTML injection into ${this.tagName}`); },
+      get innerHTML() { return this.markup ?? ''; },
+      set innerHTML(value) {
+        assert.ok(this.id === 'post-content' || this.className === 'comment-content', `Unexpected HTML target: ${this.tagName}`);
+        this.replaceChildren(); this.markup = String(value);
+      },
       get href() { return this.attributes.get('href'); },
       set href(value) { this.attributes.set('href', String(value)); },
       get isConnected() { return this === document.body || Boolean(this.parentNode?.isConnected); },
@@ -148,7 +152,7 @@ async function harness({ session = async () => authenticated, loadPost = async (
       const call = { path, options }; requests.push(call);
       if (path === '/api/auth/me') return session(call);
       if ((options.method ?? 'GET') === 'GET') {
-        if (path.includes('/comments?')) return { content: [], totalElements: 0, totalPages: 0, page: 0, size: 10, first: true, last: true };
+        if (path.includes('/comments?')) return loadComments(call);
         return path.endsWith('/files') ? loadFiles(call) : loadPost(call);
       }
       return mutate(path, options);
@@ -202,6 +206,25 @@ async function harness({ session = async () => authenticated, loadPost = async (
 }
 const checks = [];
 async function check(name, run) { await run(); checks.push(name); }
+
+await check('Post and comment bodies use HTML while titles and author labels remain text', async () => {
+  const body = '<strong>게시글 본문</strong>\n둘째 줄';
+  const commentBody = '<em>댓글 내용</em>';
+  const title = '<b>게시글 제목</b>';
+  const nickname = '<i>작성자</i>';
+  const page = await harness({
+    loadPost: async () => ({ ...initialPost, title, content: body, author: { ...authenticated, nickname } }),
+    loadComments: async () => ({
+      content: [{ id: 1, content: commentBody, author: { id: 2, nickname }, createdAt: initialPost.createdAt, updatedAt: initialPost.updatedAt }],
+      totalElements: 1, totalPages: 1, page: 0, size: 10, first: true, last: true
+    })
+  });
+  assert.equal(page.node('post-content').innerHTML, body);
+  assert.equal(page.node('post-title').textContent, title);
+  assert.equal(page.node('post-author').textContent, nickname);
+  assert.equal(page.node('comment-list').querySelector('.comment-content').innerHTML, commentBody);
+  assert.equal(page.node('comment-list').querySelector('.comment-author').textContent, nickname);
+});
 
 await check('The author receives a real edit link preserving only normalized list parameters', async () => {
   const page = await harness({ query: '?id=7&keyword=Spring&page=2&size=50&unknown=discard' });

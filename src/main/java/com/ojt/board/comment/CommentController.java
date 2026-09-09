@@ -26,7 +26,7 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequestMapping("/api/posts/{postId}/comments")
 @RequiredArgsConstructor
-@Tag(name = "댓글", description = "게시글별 댓글 조회 및 작성자 본인의 댓글 관리")
+@Tag(name = "댓글", description = "게시글별 댓글 조회 및 관리")
 public class CommentController {
 
     private final CommentService commentService;
@@ -45,11 +45,10 @@ public class CommentController {
     }
 
     @PostMapping
-    @Operation(summary = "댓글 작성", description = "로그인 세션과 CSRF 헤더가 필요합니다.")
+    @Operation(summary = "댓글 작성", description = "로그인 세션이 필요합니다.")
     @ApiResponse(responseCode = "201", description = "댓글 작성 완료")
     @ApiResponse(responseCode = "400", description = "내용 검증 실패")
     @ApiResponse(responseCode = "401", description = "로그인 필요")
-    @ApiResponse(responseCode = "403", description = "CSRF 토큰 오류")
     @ApiResponse(responseCode = "404", description = "게시글 없음")
     public ResponseEntity<CommentResponse> create(
             @PathVariable Long postId,
@@ -60,11 +59,10 @@ public class CommentController {
     }
 
     @PutMapping("/{commentId}")
-    @Operation(summary = "댓글 수정", description = "작성자 본인만 수정할 수 있습니다. 로그인 세션과 CSRF 헤더가 필요합니다.")
+    @Operation(summary = "댓글 수정", description = "로그인한 사용자가 댓글을 수정할 수 있습니다.")
     @ApiResponse(responseCode = "200", description = "댓글 수정 완료")
     @ApiResponse(responseCode = "400", description = "내용 검증 실패")
     @ApiResponse(responseCode = "401", description = "로그인 필요")
-    @ApiResponse(responseCode = "403", description = "작성자가 아니거나 CSRF 토큰 오류")
     @ApiResponse(responseCode = "404", description = "게시글 또는 해당 게시글의 댓글 없음")
     public CommentResponse update(
             @PathVariable Long postId,
@@ -76,10 +74,9 @@ public class CommentController {
     }
 
     @DeleteMapping("/{commentId}")
-    @Operation(summary = "댓글 삭제", description = "작성자 본인만 삭제할 수 있습니다. 로그인 세션과 CSRF 헤더가 필요합니다.")
+    @Operation(summary = "댓글 삭제", description = "로그인한 사용자가 댓글을 삭제할 수 있습니다.")
     @ApiResponse(responseCode = "204", description = "댓글 삭제 완료")
     @ApiResponse(responseCode = "401", description = "로그인 필요")
-    @ApiResponse(responseCode = "403", description = "작성자가 아니거나 CSRF 토큰 오류")
     @ApiResponse(responseCode = "404", description = "게시글 또는 해당 게시글의 댓글 없음")
     public ResponseEntity<Void> delete(
             @PathVariable Long postId,

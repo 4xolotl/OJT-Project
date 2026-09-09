@@ -23,12 +23,20 @@ export function safeReturnUrl(input) {
   return `${path}?${params}${path === '/post.html' && url.hash === '#comments' ? '#comments' : ''}`;
 }
 
+export function loginReturnUrl(input) {
+  if (typeof input === 'string' && /^https?:\/\//i.test(input) && !/[\\\u0000-\u001f\u007f]/.test(input)) {
+    try { return new URL(input).href; }
+    catch { return '/'; }
+  }
+  return safeReturnUrl(input);
+}
+
 export function loginUrl(returnTo = location.pathname + location.search + location.hash) {
-  return `/login.html?returnTo=${encodeURIComponent(safeReturnUrl(returnTo))}`;
+  return `/login.html?returnTo=${encodeURIComponent(loginReturnUrl(returnTo))}`;
 }
 
 export function signupUrl(returnTo = location.pathname + location.search + location.hash) {
-  return `/signup.html?returnTo=${encodeURIComponent(safeReturnUrl(returnTo))}`;
+  return `/signup.html?returnTo=${encodeURIComponent(loginReturnUrl(returnTo))}`;
 }
 
 export function writeUrl(query = location.search) {

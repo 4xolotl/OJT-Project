@@ -11,7 +11,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-public interface PostRepository extends JpaRepository<Post, Long> {
+public interface PostRepository extends JpaRepository<Post, Long>, PostSearchRepository {
 
     @Override
     @EntityGraph(attributePaths = "author")
@@ -20,11 +20,6 @@ public interface PostRepository extends JpaRepository<Post, Long> {
     @Override
     @EntityGraph(attributePaths = "author")
     Optional<Post> findById(Long id);
-
-    @EntityGraph(attributePaths = "author")
-    @Query("select p from Post p where lower(p.title) like lower(:pattern) escape '!' "
-            + "or lower(p.content) like lower(:pattern) escape '!'")
-    Page<Post> search(@Param("pattern") String pattern, Pageable pageable);
 
     // Every child mutation takes this same lock before touching a post's contents.
     @Lock(LockModeType.PESSIMISTIC_WRITE)

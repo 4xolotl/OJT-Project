@@ -47,7 +47,7 @@ public class Attachment {
         this.originalFilename = originalFilename;
         this.storedFilename = storedFilename;
         this.size = size;
-        // Upload headers are client input; files are always delivered as attachments.
+        // Storage keeps the original bytes independently of the browser's media type.
         this.contentType = MediaType.APPLICATION_OCTET_STREAM_VALUE;
     }
 }
