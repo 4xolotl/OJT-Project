@@ -14,8 +14,7 @@
 | 로그인 | 이메일·비밀번호 로그인, Google 로그인, 로그아웃 |
 | 회원가입 | 이메일·닉네임·비밀번호 등록, 가입 후 로그인 연결 |
 
-기본 계정이나 예시 게시글은 자동 생성하지 않습니다. 처음 실행하면 회원가입 후 로그인하여 게시글을 작성합니다.
-게시글·댓글·첨부파일 조회는 로그인 없이 이용할 수 있습니다.
+게시글·댓글·첨부파일은 로그인 없이 조회할 수 있으며, 글 작성에는 로그인이 필요합니다.
 
 ## 기술 스택
 
@@ -31,46 +30,12 @@
 
 ## Docker Compose 실행
 
-Docker Desktop을 설치하고 Linux 컨테이너 엔진을 실행합니다. 전체 Compose 실행에는 호스트 JDK가 필요 없습니다.
-프로젝트 루트에서 다음 명령을 실행합니다.
-
-```powershell
-docker compose up --build -d
-docker compose ps
-```
-
-DB가 준비되면 앱이 시작됩니다. 시작 상태와 오류는 다음 명령으로 확인합니다.
-
-```powershell
-docker compose logs -f app
-```
-
-| 접속 대상 | 주소 |
-| --- | --- |
-| 게시판 | http://localhost:8080/ |
-| 회원가입 | http://localhost:8080/signup.html |
-| 로그인 | http://localhost:8080/login.html |
-| 글쓰기 | http://localhost:8080/write.html |
-| Swagger UI | http://localhost:8080/swagger-ui.html |
-| OpenAPI JSON | http://localhost:8080/v3/api-docs |
-| 앱 상태 조회 (ADMIN 로그인 필요) | http://localhost:8080/actuator/health |
-
-게시글 상세·수정 화면은 목록과 상세 화면의 버튼으로 이동합니다.
-앱 `8080`과 DB `3306` 포트는 호스트의 `127.0.0.1`에만 바인딩하며 같은 컴퓨터에서 접속합니다.
-해당 포트를 다른 프로그램이 사용 중이면 먼저 포트 충돌을 해소합니다.
-
-### Actuator 관리자 접근
-
-`health`, `info`, `metrics`, `mappings`는 `ADMIN` 권한으로 로그인한 세션에서만 조회할 수 있습니다.
-비로그인 요청은 `401`, 일반 회원 요청은 `403`을 반환합니다.
-신규·기존 회원의 기본 권한은 `USER`이며, 관리자는 자동 생성하지 않습니다.
-DB 관리자가 대상 회원의 `users.role`을 `ADMIN`으로 지정한 뒤 해당 회원이 다시 로그인하면 적용됩니다. Google 로그인도 같은 로컬 계정 권한을 사용합니다.
-권한을 회수할 때는 `USER`로 변경하고 앱을 재시작해 기존 로그인 세션도 종료합니다.
+Docker Desktop의 Linux 컨테이너 엔진을 실행합니다. 별도의 JDK 설치는 필요하지 않습니다.
 
 ### Google 로그인 설정 (선택)
 
-Google 로그인은 기본 비활성화입니다. 설정하지 않아도 이메일·비밀번호로 가입하고 로그인할 수 있습니다.
-사용하려면 Google OAuth 클라이언트를 준비하고, 프로젝트 루트에 `.env`가 없을 때 [.env.example](.env.example)을 `.env`로 복사해 다음 값을 설정합니다.
+Google 로그인은 기본 비활성화이며, 이메일·비밀번호 로그인은 별도 설정 없이 사용할 수 있습니다.
+Google 로그인을 사용하려면 실행 전에 [.env.example](.env.example)을 참고해 프로젝트 루트의 `.env`에 다음 값을 설정합니다.
 
 | 변수 | 값 |
 | --- | --- |
@@ -80,52 +45,44 @@ Google 로그인은 기본 비활성화입니다. 설정하지 않아도 이메�
 | `GOOGLE_REDIRECT_URI` | `http://localhost:8080/login/oauth2/code/google` |
 
 Google에 등록한 승인된 리디렉션 URI는 위 주소와 정확히 일치해야 합니다.
-`.env`는 Git에 포함하지 않습니다. 설정을 변경한 뒤 앱을 다시 실행합니다.
+
+### 실행과 접속
+
+프로젝트 루트에서 실행합니다.
 
 ```powershell
-docker compose up -d app
+docker compose up --build -d
 ```
 
-### 종료와 데이터 유지
+| 접속 대상 | 주소 |
+| --- | --- |
+| 게시판 | http://localhost:8080/ |
+| Swagger UI | http://localhost:8080/swagger-ui.html |
+| 앱 상태 조회 (ADMIN 로그인 필요) | http://localhost:8080/actuator/health |
 
-잠시 중지할 때는 다음 명령을 사용합니다.
+앱 `8080`과 DB `3306` 포트는 `127.0.0.1`에 바인딩되어 로컬 컴퓨터에서만 접속할 수 있습니다.
 
-```powershell
-docker compose stop
-```
+### 중지와 데이터 보관
 
-컨테이너와 Compose 네트워크를 제거할 때는 다음 명령을 사용합니다.
+| 명령 | 동작 |
+| --- | --- |
+| `docker compose stop` | 컨테이너 중지 |
+| `docker compose up -d` | 다시 실행 |
+| `docker compose down` | 컨테이너와 Compose 네트워크 제거 |
 
-```powershell
-docker compose down
-```
+DB와 첨부파일은 각각 `mariadb-data`, `uploads-data` 볼륨에 저장되며, 위 명령으로 컨테이너를 중지하거나 제거해도 유지됩니다.
 
-DB는 `mariadb-data`, 첨부파일은 `uploads-data` 볼륨에 저장됩니다.
-위 명령이나 앱 컨테이너 재생성으로 두 볼륨의 데이터가 삭제되지는 않습니다. 다시 시작할 때는 `docker compose up -d`를 실행합니다.
+## Actuator 관리자 접근
 
-## 사용 범위와 기능명세
+`health`, `info`, `metrics`, `mappings`는 `ADMIN` 권한으로 로그인한 계정만 조회할 수 있습니다.
+이메일·Google 로그인 모두 동일한 로컬 계정 권한을 사용합니다.
+
+- 회원의 기본 권한은 `USER`입니다.
+- DB 관리자가 대상 회원의 `users.role`을 `ADMIN`으로 지정하고, 해당 회원이 다시 로그인하면 적용됩니다.
+- 권한을 회수할 때는 `USER`로 변경하고 앱을 재시작해 기존 로그인 세션을 종료합니다.
+
+## 사용 조건
 
 - 게시글 제목은 1\~200자, 본문은 1\~10,000자, 댓글은 1\~2,000자입니다.
 - 파일은 요청당 최대 5개, 파일당 10 MiB, 전체 multipart 요청은 50 MiB까지입니다.
-- 글·댓글 수정 및 파일 처리의 요청 형식과 응답 코드는 [API 기능명세](docs/API_SPEC.md)에서 확인합니다.
-- Swagger UI에서는 회원가입·로그인 후 같은 브라우저의 세션으로 API를 실행합니다.
-- Actuator는 `health`, `info`, `metrics`, `mappings`의 조회를 제공하며 구성과 접근 범위는 기능명세에 기재되어 있습니다.
-
-## 로컬 빌드 (선택)
-
-JDK 25와 `JAVA_HOME`을 준비한 뒤 Gradle Wrapper를 실행합니다.
-
-Windows PowerShell:
-
-```powershell
-.\gradlew.bat clean test bootJar
-```
-
-macOS / Linux:
-
-```sh
-sh ./gradlew clean test bootJar
-```
-
-실행 JAR는 `build/libs/board-0.0.1-SNAPSHOT.jar`에 생성됩니다.
-Gradle 9.1.0은 현재 프로젝트의 Java 25 실행 조합이며, Spring Boot 3.5의 [공식 Gradle 지원 범위](https://docs.spring.io/spring-boot/3.5/system-requirements.html)에는 포함되지 않습니다.
+- Swagger UI에서는 같은 브라우저의 로그인 세션으로 API를 실행합니다.
