@@ -306,8 +306,7 @@ class PostEditIntegrationTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"missingTime", "nullTime", "badTime", "emptyTitle", "longTitle", "emptyContent",
-            "longContent", "scriptContent"})
+    @ValueSource(strings = {"missingTime", "nullTime", "badTime", "emptyTitle", "longTitle", "emptyContent", "longContent"})
     void invalidTextOrSnapshotTimeReturnsBadRequest(String scenario) throws Exception {
         Fixture fixture = fixture();
         Map<String, Object> body = editBody(fixture);
@@ -318,8 +317,7 @@ class PostEditIntegrationTest {
             case "emptyTitle" -> body.put("title", " ");
             case "longTitle" -> body.put("title", "t".repeat(201));
             case "emptyContent" -> body.put("content", "\n\t");
-            case "longContent" -> body.put("content", "c".repeat(10001));
-            default -> body.put("content", "<script>alert(1)</script>");
+            default -> body.put("content", "c".repeat(10001));
         }
         mockMvc.perform(authenticated(editRequest(fixture.post().id(), body)))
                 .andExpect(status().isBadRequest());

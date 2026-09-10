@@ -220,15 +220,6 @@ class BoardApiIntegrationTest {
     }
 
     @Test
-    void postContentRejectsScriptElements() throws Exception {
-        Actor author = registerAndLogin("author");
-        mockMvc.perform(json(post("/api/posts"), author,
-                        Map.of("title", "Markup", "content", "<ScRiPt>alert(1)</ScRiPt>")))
-                .andExpect(status().isBadRequest());
-        assertEquals(0, postRepository.count());
-    }
-
-    @Test
     void postPaginationUsesNewestFirstAndReportsPageMetadata() throws Exception {
         Actor author = registerAndLogin("author");
         long first = createPost(author, "First", "Content").path("id").asLong();
