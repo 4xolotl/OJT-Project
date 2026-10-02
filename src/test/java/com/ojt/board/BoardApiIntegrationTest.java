@@ -278,23 +278,28 @@ class BoardApiIntegrationTest {
     }
 
     @Test
-    void keywordExpressionsAffectNativeSearchResults() throws Exception {
+    void keywordSearchBindsSqlMetacharactersAsLiteralText() throws Exception {
         Actor author = registerAndLogin("searcher");
         createPost(author, "First sample", "First body");
         createPost(author, "Second sample", "Second body");
+        long quotedTitle = createPost(author, "O'Reilly guide", "Quoted title").path("id").asLong();
 
         mockMvc.perform(get("/api/posts").param("keyword", "missinglookup"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(0));
         mockMvc.perform(get("/api/posts").param("keyword", "missinglookup') OR 1=1 -- -"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalElements").value(2))
-                .andExpect(jsonPath("$.content.length()").value(2));
+                .andExpect(jsonPath("$.totalElements").value(0))
+                .andExpect(jsonPath("$.content.length()").value(0));
         mockMvc.perform(get("/api/posts").param("keyword", "missinglookup') OR 1=2 -- -"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(0))
                 .andExpect(jsonPath("$.content.length()").value(0));
-        assertEquals(2, postRepository.count());
+        mockMvc.perform(get("/api/posts").param("keyword", "O'Reilly"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].id").value(quotedTitle));
+        assertEquals(3, postRepository.count());
     }
 
     @Test
