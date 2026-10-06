@@ -52,5 +52,7 @@ class BoardReturnUrlTest {
                 BoardReturnUrl.loginFailure("cancelled", "/edit.html?id=17&keyword=Spring&page=2&size=10&preview=1#comments"));
         assertEquals("/login.html?oauthError=failed&returnTo=%2F",
                 BoardReturnUrl.loginFailure("failed", "/edit.html?id=-1"));
+        assertEquals("/login.html?oauthError=failed&returnTo=%2F",
+                BoardReturnUrl.loginFailure("failed", "https://evil.example/steal"));
     }
 }

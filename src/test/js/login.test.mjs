@@ -152,12 +152,12 @@ await check('Registration notice appears only after the explicit registration fl
   }
 });
 
-await check('Signup link preserves the original login return destination', async () => {
+await check('Signup link preserves safe return destinations and rejects external targets', async () => {
   const page = await harness({ returnTo: '/post.html?id=9&keyword=Spring&page=2&size=10&preview=1#comments', registered: '1' });
   assert.equal(page.node('signup-link').href,
     '/signup.html?returnTo=%2Fpost.html%3Fid%3D9%26keyword%3DSpring%26page%3D2%26size%3D10%23comments');
   const external = await harness({ returnTo: 'https://example.org/' });
-  assert.equal(external.node('signup-link').href, '/signup.html?returnTo=https%3A%2F%2Fexample.org%2F');
+  assert.equal(external.node('signup-link').href, '/signup.html?returnTo=%2F');
 });
 
 await check('Empty and browser-invalid email are rejected before login', async () => {
@@ -286,8 +286,8 @@ await check('A late initial session result cannot replace the successful login s
 
 await check('Success clears the password and replaces history with the login return URL', async () => {
   for (const [target, expected] of [
-    ['https://example.org/next', 'https://example.org/next'],
-    ['http://example.org/next?view=board', 'http://example.org/next?view=board'],
+    ['https://example.org/next', '/'],
+    ['http://example.org/next?view=board', '/'],
     ['javascript:alert(1)', '/'],
     ['/post.html?id=12&keyword=Spring&page=2&size=50&preview=1#comments', '/post.html?id=12&keyword=Spring&page=2&size=50#comments'],
     ['/edit.html?id=7&keyword=Spring&page=2&size=50&preview=1', '/edit.html?id=7&keyword=Spring&page=2&size=50']
