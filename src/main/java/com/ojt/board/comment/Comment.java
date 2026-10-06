@@ -20,6 +20,7 @@ import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.springframework.security.access.AccessDeniedException;
 
 @Entity
 @Table(name = "comments", indexes = {
@@ -53,5 +54,11 @@ public class Comment extends BaseTimeEntity {
 
     public void updateContent(String content) {
         this.content = content;
+    }
+
+    public void requireAuthor(Long actorId) {
+        if (!author.getId().equals(actorId)) {
+            throw new AccessDeniedException("댓글 작성자만 수정하거나 삭제할 수 있습니다.");
+        }
     }
 }

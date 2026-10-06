@@ -139,22 +139,25 @@ class BoardApiIntegrationTest {
     }
 
     @Test
-    void authenticatedUserCanUpdateAndDeletePostById() throws Exception {
+    void nonAuthorCannotUpdateOrDeletePost() throws Exception {
         Actor author = registerAndLogin("author");
         Actor other = registerAndLogin("other");
         long postId = createPost(author, "Original", "Original content").path("id").asLong();
 
         mockMvc.perform(json(put("/api/posts/{id}", postId), other,
                         Map.of("title", "Updated", "content", "Changed")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").value("게시글 작성자만 수정하거나 삭제할 수 있습니다."));
+        mockMvc.perform(get("/api/posts/{id}", postId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("Original"))
+                .andExpect(jsonPath("$.content").value("Original content"));
+        mockMvc.perform(authenticate(delete("/api/posts/{id}", postId), other))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").value("게시글 작성자만 수정하거나 삭제할 수 있습니다."));
+        mockMvc.perform(get("/api/posts/{id}", postId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.author.id").value(author.id()));
-        mockMvc.perform(get("/api/posts/{id}", postId))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.title").value("Updated"));
-        mockMvc.perform(authenticate(delete("/api/posts/{id}", postId), other))
-                .andExpect(status().isNoContent());
-        mockMvc.perform(get("/api/posts/{id}", postId))
-                .andExpect(status().isNotFound());
     }
 
     @Test
@@ -355,7 +358,7 @@ class BoardApiIntegrationTest {
     }
 
     @Test
-    void authenticatedUserCanUpdateAndDeleteCommentById() throws Exception {
+    void nonAuthorCannotUpdateOrDeleteComment() throws Exception {
         Actor postAuthor = registerAndLogin("postAuthor");
         Actor commentAuthor = registerAndLogin("commentAuthor");
         Actor other = registerAndLogin("other");
@@ -364,14 +367,23 @@ class BoardApiIntegrationTest {
 
         mockMvc.perform(json(put("/api/posts/{postId}/comments/{id}", postId, commentId), other,
                         Map.of("content", "Changed")))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content").value("Changed"))
-                .andExpect(jsonPath("$.author.id").value(commentAuthor.id()));
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").value("댓글 작성자만 수정하거나 삭제할 수 있습니다."));
         mockMvc.perform(authenticate(delete("/api/posts/{postId}/comments/{id}", postId, commentId), other))
-                .andExpect(status().isNoContent());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").value("댓글 작성자만 수정하거나 삭제할 수 있습니다."));
+        mockMvc.perform(json(put("/api/posts/{postId}/comments/{id}", postId, commentId), postAuthor,
+                        Map.of("content", "Changed by post author")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").value("댓글 작성자만 수정하거나 삭제할 수 있습니다."));
+        mockMvc.perform(authenticate(delete("/api/posts/{postId}/comments/{id}", postId, commentId), postAuthor))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").value("댓글 작성자만 수정하거나 삭제할 수 있습니다."));
         mockMvc.perform(get("/api/posts/{postId}/comments", postId))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalElements").value(0));
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].content").value("Readers comment"))
+                .andExpect(jsonPath("$.content[0].author.id").value(commentAuthor.id()));
     }
 
     @Test
@@ -458,19 +470,22 @@ class BoardApiIntegrationTest {
     }
 
     @Test
-    void authenticatedUserCanUploadAndDeletePostFilesById() throws Exception {
+    void nonOwnerCannotUploadOrDeletePostFiles() throws Exception {
         Fixture fixture = createFixture();
         Actor other = registerAndLogin("other");
         mockMvc.perform(uploadRequest(other, fixture.postId(), textFile("extra.txt", "Extra")))
-                .andExpect(status().isCreated());
-        assertEquals(2, attachmentRepository.count());
-        assertEquals(2, storedFileCount());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").value("게시글 작성자만 수정하거나 삭제할 수 있습니다."));
+        assertEquals(1, attachmentRepository.count());
+        assertEquals(1, storedFileCount());
         mockMvc.perform(authenticate(delete("/api/files/{id}", fixture.fileId()), other))
-                .andExpect(status().isNoContent());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").value("게시글 작성자만 수정하거나 삭제할 수 있습니다."));
         assertEquals(1, attachmentRepository.count());
         assertEquals(1, storedFileCount());
         mockMvc.perform(get("/api/files/{id}/download", fixture.fileId()))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isOk())
+                .andExpect(content().bytes("Original".getBytes(StandardCharsets.UTF_8)));
     }
 
     @Test

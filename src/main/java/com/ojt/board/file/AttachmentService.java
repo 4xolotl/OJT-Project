@@ -40,6 +40,7 @@ public class AttachmentService {
     @Transactional
     public List<AttachmentResponse> upload(Long postId, Long actorId, List<MultipartFile> files) {
         Post post = requireLockedPost(postId);
+        post.requireAuthor(actorId);
         return storeFiles(post, files);
     }
 
@@ -94,7 +95,8 @@ public class AttachmentService {
         // This shares the lock order used by uploads and post deletion.
         Long postId = attachmentRepository.findPostIdById(fileId)
                 .orElseThrow(() -> new ResourceNotFoundException("파일을 찾을 수 없습니다."));
-        requireLockedPost(postId);
+        Post post = requireLockedPost(postId);
+        post.requireAuthor(actorId);
         Attachment attachment = requireAttachment(fileId);
         attachmentRepository.delete(attachment);
         removeAfterCommit(List.of(attachment.getStoredFilename()));
