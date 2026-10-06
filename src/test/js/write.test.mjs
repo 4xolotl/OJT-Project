@@ -256,6 +256,7 @@ await check('Rejected file batches preserve the previous selection for count, si
   const page = await harness(); await page.select([attachment('kept.txt')]);
   const invalid = [
     [attachment('empty.txt', '')], [{ name: 'huge.bin', size: 10 * 1024 * 1024 + 1 }],
+    [attachment('malware.bin')],
     Array.from({ length: 5 }, (_, index) => attachment(`${index}.txt`)),
     ...['../path.txt', 'C:\\path.txt', 'bad\nname.txt', 'bad\u007fname', '..', ' ', 'a'.repeat(256)].map(name => [attachment(name)])
   ];
@@ -269,9 +270,9 @@ await check('Rejected file batches preserve the previous selection for count, si
   assert.deepEqual(page.fileNames, ['kept.txt', 'new.txt']);
   assert.equal(page.node('file-error').hidden, true);
   const large = await harness();
-  await large.select(Array.from({ length: 4 }, (_, index) => ({ name: `${index}.bin`, size: 10 * 1024 * 1024 })));
+  await large.select(Array.from({ length: 4 }, (_, index) => ({ name: `${index}.pdf`, size: 10 * 1024 * 1024 })));
   assert.equal(large.fileNames.length, 4);
-  await large.select([{ name: 'fifth.bin', size: 10 * 1024 * 1024 }]);
+  await large.select([{ name: 'fifth.pdf', size: 10 * 1024 * 1024 }]);
   assert.equal(large.fileNames.length, 4);
   assert.ok(large.node('file-error').textContent.includes('50 MiB'));
 });
@@ -279,8 +280,8 @@ await check('Rejected file batches preserve the previous selection for count, si
 await check('A single multipart creation sends JSON plus exact file bytes and returns to a filtered detail page', async () => {
   const page = await harness({ query: '?keyword=%20Spring%20&page=3&size=10&preview=1&id=99', mutate: async () => ({ id: 42 }) });
   page.fill('  제목  ', '\n본문 🧪\n');
-  const bytes = new Uint8Array([0, 1, 127, 128, 255]);
-  await page.select([attachment('자료.bin', bytes)]); await page.select([attachment('two.txt', 'Second')]);
+  const bytes = new TextEncoder().encode('첨부 내용');
+  await page.select([attachment('자료.txt', bytes)]); await page.select([attachment('two.txt', 'Second')]);
   await page.submit();
   assert.deepEqual(page.requests.map(call => call.path), ['/api/auth/me', '/api/auth/me', '/api/posts']);
   const call = page.mutations[0];
@@ -288,7 +289,7 @@ await check('A single multipart creation sends JSON plus exact file bytes and re
   assert.deepEqual([...call.options.body.keys()], ['post', 'files', 'files']);
   assert.deepEqual(JSON.parse(await call.options.body.get('post').text()), { title: '  제목  ', content: '\n본문 🧪\n' });
   const uploaded = call.options.body.getAll('files');
-  assert.deepEqual(Array.from(uploaded, file => file.name), ['자료.bin', 'two.txt']);
+  assert.deepEqual(Array.from(uploaded, file => file.name), ['자료.txt', 'two.txt']);
   assert.deepEqual(new Uint8Array(await uploaded[0].arrayBuffer()), bytes);
   assert.equal(await uploaded[1].text(), 'Second');
   assert.deepEqual(page.redirects, [{ method: 'replace', path: '/post.html?id=42&keyword=Spring&page=3&size=10' }]);

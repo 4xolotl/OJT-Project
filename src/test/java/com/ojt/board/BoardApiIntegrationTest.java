@@ -433,6 +433,7 @@ class BoardApiIntegrationTest {
         long fileId = files.get(0).path("id").asLong();
         assertEquals(filename, files.get(0).path("originalFilename").asText());
         assertEquals(bytes.length, files.get(0).path("size").asLong());
+        assertEquals("text/plain", files.get(0).path("contentType").asText());
         assertEquals("/api/files/" + fileId + "/download", files.get(0).path("downloadUrl").asText());
 
         mockMvc.perform(get("/api/posts/{id}/files", postId))
@@ -446,7 +447,7 @@ class BoardApiIntegrationTest {
         assertArrayEquals(bytes, download.getResponse().getContentAsByteArray());
         ContentDisposition disposition = ContentDisposition.parse(
                 download.getResponse().getHeader(HttpHeaders.CONTENT_DISPOSITION));
-        assertEquals("inline", disposition.getType());
+        assertEquals("attachment", disposition.getType());
         assertEquals(filename, disposition.getFilename());
 
         mockMvc.perform(authenticate(delete("/api/files/{id}", fileId), author))

@@ -14,7 +14,6 @@ import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import org.springframework.http.MediaType;
 
 @Entity
 @Table(name = "attachments", indexes = @Index(name = "idx_attachment_post", columnList = "post_id"))
@@ -42,12 +41,11 @@ public class Attachment {
     @Column(nullable = false, length = 100)
     private String contentType;
 
-    public Attachment(Post post, String originalFilename, String storedFilename, long size) {
+    public Attachment(Post post, String originalFilename, String storedFilename, long size, String contentType) {
         this.post = post;
         this.originalFilename = originalFilename;
         this.storedFilename = storedFilename;
         this.size = size;
-        // Storage keeps the original bytes independently of the browser's media type.
-        this.contentType = MediaType.APPLICATION_OCTET_STREAM_VALUE;
+        this.contentType = contentType;
     }
 }

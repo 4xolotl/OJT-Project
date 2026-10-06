@@ -70,8 +70,8 @@
           <div class="editor-label-row"><label for="file-input">새 파일 첨부 <span class="editor-optional">선택</span></label><span id="file-count" class="editor-count">0 / 5개</span></div>
           <div class="editor-file-picker">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 13 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l9-9a7 7 0 0 1 10 10l-9 9"/></svg>
-            <div class="editor-file-description"><strong>추가할 파일을 선택해 주세요</strong><p id="file-hint">새 파일 최대 5개 · 파일당 10 MiB · 전체 요청 50 MiB</p></div>
-            <label class="button button-outline editor-file-button" for="file-input">파일 선택<input id="file-input" type="file" name="files" multiple aria-describedby="file-hint file-error"></label>
+            <div class="editor-file-description"><strong>추가할 파일을 선택해 주세요</strong><p id="file-hint">TXT, CSV, PNG, JPG, GIF, PDF, DOCX, XLSX, PPTX · 새 파일 최대 5개 · 파일당 10 MiB</p></div>
+            <label class="button button-outline editor-file-button" for="file-input">파일 선택<input id="file-input" type="file" name="files" multiple accept=".txt,.csv,.png,.jpg,.jpeg,.gif,.pdf,.docx,.xlsx,.pptx" aria-describedby="file-hint file-error"></label>
           </div>
           <ul id="file-list" class="editor-file-list" aria-label="새로 선택한 첨부파일" hidden></ul>
           <p id="file-error" class="form-error" role="alert" hidden></p>

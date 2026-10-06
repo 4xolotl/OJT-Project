@@ -178,7 +178,7 @@ function renderPost() {
   $('page-state').hidden = true;
   $('post-view').hidden = false;
   $('post-title').textContent = post.title;
-  $('post-content').innerHTML = post.content;
+  $('post-content').textContent = post.content;
   $('post-author').textContent = post.author.nickname;
   $('post-avatar').textContent = avatar(post.author.nickname);
   $('post-date').textContent = formatDate(post.createdAt);
@@ -289,7 +289,7 @@ function renderComments() {
     time.dateTime = comment.createdAt;
     meta.append(time);
     const content = element('p', 'comment-content');
-    content.innerHTML = comment.content;
+    content.textContent = comment.content;
     main.append(meta, content);
     if (!preview) {
       const actions = element('div', 'comment-actions');

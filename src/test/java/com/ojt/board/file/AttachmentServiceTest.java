@@ -13,6 +13,7 @@ import static org.mockito.Mockito.when;
 import com.ojt.board.post.Post;
 import com.ojt.board.post.PostRepository;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -65,9 +66,38 @@ class AttachmentServiceTest {
     @Test
     void storesFilesForTheRequestedPost() throws Exception {
         when(attachmentRepository.saveAllAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
-        assertEquals(1, service.upload(1L, 8L, List.of(validFile())).size());
+        List<AttachmentResponse> response = service.upload(1L, 8L, List.of(validFile()));
+        assertEquals(1, response.size());
+        assertEquals("text/plain", response.getFirst().contentType());
         assertEquals(1, storedFileCount());
         verify(attachmentRepository).saveAllAndFlush(any());
+    }
+
+    @Test
+    void storesMarkupOnlyAsCanonicalPlainText() throws Exception {
+        when(attachmentRepository.saveAllAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        MockMultipartFile disguisedHtml = new MockMultipartFile("files", "notes.txt", "text/plain",
+                "<!doctype html><script>alert(document.domain)</script>".getBytes(StandardCharsets.UTF_8));
+
+        List<AttachmentResponse> response = service.upload(1L, 7L, List.of(disguisedHtml));
+
+        assertEquals("text/plain", response.getFirst().contentType());
+        assertEquals(1, storedFileCount());
+        verify(attachmentRepository).saveAllAndFlush(any());
+    }
+
+    @Test
+    void downloadUsesTheMimeTypeVerifiedAtUpload() throws Exception {
+        Attachment attachment = storedAttachment();
+        when(attachmentRepository.findById(5L)).thenReturn(Optional.of(attachment));
+
+        AttachmentService.Download download = service.download(5L);
+
+        assertEquals("text/plain", download.contentType());
+        assertEquals(attachment.getSize(), download.size());
+        try (var ignored = download.resource().getInputStream()) {
+            assertTrue(ignored.read() >= 0);
+        }
     }
 
     @Test
@@ -129,11 +159,13 @@ class AttachmentServiceTest {
 
     private Attachment storedAttachment() {
         LocalFileStorage.StoredFile stored = storage.store(validFile());
-        return new Attachment(post, stored.originalFilename(), stored.storedFilename(), stored.size());
+        return new Attachment(post, stored.originalFilename(), stored.storedFilename(), stored.size(),
+                stored.contentType());
     }
 
     private MockMultipartFile validFile() {
-        return new MockMultipartFile("files", "report.txt", "text/plain", new byte[]{1, 2, 3});
+        return new MockMultipartFile("files", "report.txt", "text/plain",
+                "report body".getBytes(StandardCharsets.UTF_8));
     }
 
     private long storedFileCount() throws IOException {

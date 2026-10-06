@@ -83,7 +83,10 @@ class BoardHttpSmokeTest {
                         .timeout(Duration.ofSeconds(20)).GET().build(), HttpResponse.BodyHandlers.ofByteArray());
                 assertEquals(200, download.statusCode());
                 assertEquals(new String(fileBytes, StandardCharsets.UTF_8), new String(download.body(), StandardCharsets.UTF_8));
-                assertTrue(download.headers().firstValue("Content-Disposition").orElseThrow().startsWith("inline;"));
+                assertTrue(download.headers().firstValue("Content-Type").orElseThrow().startsWith("text/plain"));
+                assertTrue(download.headers().firstValue("Content-Disposition").orElseThrow().startsWith("attachment;"));
+                assertEquals("nosniff", download.headers().firstValue("X-Content-Type-Options").orElseThrow());
+                assertTrue(download.headers().firstValue("Content-Security-Policy").orElseThrow().contains("sandbox"));
             }
 
             // MockMvc bypasses servlet multipart parsing; this request exercises Tomcat's real limit.
@@ -106,7 +109,7 @@ class BoardHttpSmokeTest {
     }
 
     @Test
-    void htmlFileIsReturnedWithItsExtensionMediaType() throws Exception {
+    void activeWebExtensionsAreRejectedAndTextMarkupDownloadsSafely() throws Exception {
         CookieManager cookies = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
         try (HttpClient client = HttpClient.newBuilder().cookieHandler(cookies).build()) {
             String token = csrf(client);
@@ -117,17 +120,29 @@ class BoardHttpSmokeTest {
             long postId = body(json(client, "POST", "/api/posts", token,
                     Map.of("title", "HTML file", "content", "Browser view"))).path("id").asLong();
             try {
-                byte[] bytes = "<!doctype html><script>document.title='file-view-ok'</script>".getBytes(StandardCharsets.UTF_8);
-                HttpResponse<byte[]> uploaded = multipart(client, postId, token, "view.html", bytes);
+                byte[] html = "<!doctype html><script>document.title='xss'</script>".getBytes(StandardCharsets.UTF_8);
+                byte[] svg = "<svg xmlns='http://www.w3.org/2000/svg' onload='alert(document.domain)'/>"
+                        .getBytes(StandardCharsets.UTF_8);
+
+                assertEquals(400, multipart(client, postId, token, "view.html", html).statusCode());
+                assertEquals(400, multipart(client, postId, token, "image.svg", svg).statusCode());
+                HttpResponse<byte[]> uploaded = multipart(client, postId, token, "renamed.txt", html);
                 assertEquals(201, uploaded.statusCode());
                 long fileId = body(uploaded).get(0).path("id").asLong();
-                assertEquals("text/html", body(uploaded).get(0).path("contentType").asText());
-                HttpResponse<byte[]> downloaded = client.send(HttpRequest.newBuilder(uri("/api/files/" + fileId + "/download"))
-                        .GET().build(), HttpResponse.BodyHandlers.ofByteArray());
+                HttpResponse<byte[]> downloaded = client.send(HttpRequest.newBuilder(
+                                uri("/api/files/" + fileId + "/download")).GET().build(),
+                        HttpResponse.BodyHandlers.ofByteArray());
                 assertEquals(200, downloaded.statusCode());
-                assertTrue(downloaded.headers().firstValue("Content-Type").orElseThrow().startsWith("text/html"));
-                assertTrue(downloaded.headers().firstValue("Content-Disposition").orElseThrow().startsWith("inline;"));
-                assertEquals(new String(bytes, StandardCharsets.UTF_8), new String(downloaded.body(), StandardCharsets.UTF_8));
+                assertTrue(downloaded.headers().firstValue("Content-Type").orElseThrow().startsWith("text/plain"));
+                assertTrue(downloaded.headers().firstValue("Content-Disposition").orElseThrow()
+                        .startsWith("attachment;"));
+                assertEquals("nosniff", downloaded.headers().firstValue("X-Content-Type-Options").orElseThrow());
+                assertTrue(downloaded.headers().firstValue("Content-Security-Policy").orElseThrow().contains("sandbox"));
+                assertEquals(new String(html, StandardCharsets.UTF_8),
+                        new String(downloaded.body(), StandardCharsets.UTF_8));
+                try (var files = Files.list(STORAGE)) {
+                    assertEquals(1L, files.count());
+                }
             } finally {
                 assertEquals(204, json(client, "DELETE", "/api/posts/" + postId, token, null).statusCode());
                 json(client, "POST", "/api/auth/logout", token, null);

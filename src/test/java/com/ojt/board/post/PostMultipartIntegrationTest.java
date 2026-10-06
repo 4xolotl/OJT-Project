@@ -57,6 +57,8 @@ import org.springframework.test.web.servlet.request.MockMultipartHttpServletRequ
 @ActiveProfiles("test")
 class PostMultipartIntegrationTest {
 
+    private static final byte[] TEST_FILE_BYTES = "test file body".getBytes(StandardCharsets.UTF_8);
+
     private static final Path STORAGE = createStorageDirectory();
     private static final String PASSWORD_HASH = new BCryptPasswordEncoder().encode("password123");
 
@@ -91,7 +93,7 @@ class PostMultipartIntegrationTest {
 
     @Test
     void createsPostAndDownloadsKoreanFilenameWithOriginalBytes() throws Exception {
-        byte[] bytes = "한글 첨부파일\n원본 내용\u0000".getBytes(StandardCharsets.UTF_8);
+        byte[] bytes = "한글 첨부파일\n원본 내용".getBytes(StandardCharsets.UTF_8);
         MvcResult result = mockMvc.perform(authenticated(createRequest(validPost(),
                         new MockMultipartFile("files", "개발 계획.txt", "text/plain", bytes))))
                 .andExpect(status().isCreated())
@@ -109,6 +111,7 @@ class PostMultipartIntegrationTest {
         Attachment attachment = attachments.get(0);
         assertEquals("개발 계획.txt", attachment.getOriginalFilename());
         assertEquals(bytes.length, attachment.getSize());
+        assertEquals("text/plain", attachment.getContentType());
         assertEquals(1, storedFileCount());
         MvcResult download = mockMvc.perform(get("/api/files/{id}/download", attachment.getId()))
                 .andExpect(status().isOk())
@@ -116,8 +119,9 @@ class PostMultipartIntegrationTest {
                 .andExpect(content().bytes(bytes)).andReturn();
         ContentDisposition disposition = ContentDisposition.parse(
                 download.getResponse().getHeader(HttpHeaders.CONTENT_DISPOSITION));
-        assertEquals("inline", disposition.getType());
+        assertEquals("attachment", disposition.getType());
         assertEquals("개발 계획.txt", disposition.getFilename());
+        assertEquals("nosniff", download.getResponse().getHeader("X-Content-Type-Options"));
     }
 
     @Test
@@ -214,6 +218,18 @@ class PostMultipartIntegrationTest {
         assertNothingStored();
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"payload.html", "payload.svg"})
+    void activeWebAttachmentsRollBackNewPost(String filename) throws Exception {
+        MockMultipartFile activeContent = new MockMultipartFile("files", filename, "text/html",
+                "<script>alert(document.domain)</script>".getBytes(StandardCharsets.UTF_8));
+
+        mockMvc.perform(authenticated(createRequest(validPost(), activeContent)))
+                .andExpect(status().isBadRequest());
+
+        assertNothingStored();
+    }
+
     @Test
     void sixFilesRollBackNewPost() throws Exception {
         MockMultipartFile[] files = new MockMultipartFile[6];
@@ -237,8 +253,12 @@ class PostMultipartIntegrationTest {
     @Test
     void acceptsFiveFilesAndExactIndividualSizeLimit() throws Exception {
         MockMultipartFile[] files = new MockMultipartFile[5];
-        files[0] = new MockMultipartFile("files", "limit.bin", "application/octet-stream",
-                new byte[Math.toIntExact(LocalFileStorage.MAX_FILE_SIZE)]);
+        byte[] limit = new byte[Math.toIntExact(LocalFileStorage.MAX_FILE_SIZE)];
+        byte[] pdfHeader = "%PDF-1.7\n".getBytes(StandardCharsets.US_ASCII);
+        System.arraycopy(pdfHeader, 0, limit, 0, pdfHeader.length);
+        byte[] pdfTrailer = "startxref\n0\n%%EOF\n".getBytes(StandardCharsets.US_ASCII);
+        System.arraycopy(pdfTrailer, 0, limit, limit.length - pdfTrailer.length, pdfTrailer.length);
+        files[0] = new MockMultipartFile("files", "limit.pdf", "application/pdf", limit);
         for (int i = 1; i < files.length; i++) {
             files[i] = textFile("file-" + i + ".txt");
         }
@@ -330,7 +350,7 @@ class PostMultipartIntegrationTest {
     }
 
     private MockMultipartFile textFile(String filename) {
-        return new MockMultipartFile("files", filename, "text/plain", new byte[]{1, 2, 3});
+        return new MockMultipartFile("files", filename, "text/plain", TEST_FILE_BYTES);
     }
 
     private MockMultipartHttpServletRequestBuilder createRequest(PostRequest request, MockMultipartFile... files)
