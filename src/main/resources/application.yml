@@ -13,6 +13,12 @@ spring:
 app:
   storage:
     location: ${APP_STORAGE_LOCATION:./uploads}
+  security:
+    csrf:
+      rate-limit:
+        max-requests: ${CSRF_MAX_REQUESTS:20}
+        window: ${CSRF_RATE_LIMIT_WINDOW:1m}
+        max-entries: ${CSRF_RATE_LIMIT_MAX_ENTRIES:4096}
   oauth:
     google:
       enabled: ${GOOGLE_LOGIN_ENABLED:false}

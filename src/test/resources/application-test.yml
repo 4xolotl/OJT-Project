@@ -9,3 +9,10 @@ spring:
       ddl-auto: create-drop
   flyway:
     enabled: false
+
+app:
+  security:
+    csrf:
+      rate-limit:
+        # Shared integration-test contexts issue many tokens from loopback.
+        max-requests: 1000

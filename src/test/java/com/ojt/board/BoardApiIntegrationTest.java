@@ -174,32 +174,31 @@ class BoardApiIntegrationTest {
     }
 
     @Test
-    void authenticatedJsonWritesAcceptSessionWithoutCsrfHeader() throws Exception {
+    void authenticatedJsonWritesWithoutCsrfHeaderAreRejectedWithoutChanges() throws Exception {
         Fixture fixture = createFixture();
         MockHttpSession session = fixture.owner().session();
         mockMvc.perform(put("/api/posts/{id}", fixture.postId()).session(session)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsBytes(Map.of("title", "Updated post", "content", "Updated body"))))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.title").value("Updated post"));
+                .andExpect(status().isForbidden());
         mockMvc.perform(post("/api/posts/{id}/comments", fixture.postId()).session(session)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsBytes(Map.of("content", "New comment"))))
-                .andExpect(status().isCreated());
+                .andExpect(status().isForbidden());
         mockMvc.perform(put("/api/posts/{postId}/comments/{id}", fixture.postId(), fixture.commentId()).session(session)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsBytes(Map.of("content", "Updated comment"))))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content").value("Updated comment"));
+                .andExpect(status().isForbidden());
         mockMvc.perform(get("/api/posts/{id}", fixture.postId()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.title").value("Updated post"));
+                .andExpect(jsonPath("$.title").value("Original post"))
+                .andExpect(jsonPath("$.content").value("Content"));
         mockMvc.perform(get("/api/posts/{id}/comments", fixture.postId()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalElements").value(2))
-                .andExpect(jsonPath("$.content[0].content").value("Updated comment"));
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].content").value("Original comment"));
         assertEquals(1, postRepository.count());
-        assertEquals(2, commentRepository.count());
+        assertEquals(1, commentRepository.count());
         assertEquals(1, attachmentRepository.count());
     }
 

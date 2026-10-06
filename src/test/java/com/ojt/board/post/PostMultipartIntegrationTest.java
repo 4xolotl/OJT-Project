@@ -159,12 +159,10 @@ class PostMultipartIntegrationTest {
     }
 
     @Test
-    void authenticatedMultipartAcceptsSessionWithoutAdditionalHeader() throws Exception {
+    void authenticatedMultipartWithoutCsrfHeaderIsRejectedWithoutChanges() throws Exception {
         mockMvc.perform(createRequest(validPost(), textFile("valid.txt")).with(user(author)))
-                .andExpect(status().isCreated());
-        assertEquals(1, postRepository.count());
-        assertEquals(1, attachmentRepository.count());
-        assertEquals(1, storedFileCount());
+                .andExpect(status().isForbidden());
+        assertNothingStored();
     }
 
     @ParameterizedTest

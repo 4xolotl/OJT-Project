@@ -169,11 +169,10 @@ class GoogleOidcIntegrationTest {
             String token = csrf(owner);
             assertNotEquals(oldToken, token);
             HttpResponse<byte[]> staleTokenPost = owner.json("POST", "/api/posts", oldToken, post("stale token"));
-            assertEquals(201, staleTokenPost.statusCode());
-            assertEquals(204, owner.json("DELETE", "/api/posts/" + body(staleTokenPost).path("id").asLong(), null, null).statusCode());
+            assertEquals(403, staleTokenPost.statusCode());
             HttpResponse<byte[]> tokenlessPost = owner.json("POST", "/api/posts", null, post("missing token"));
-            assertEquals(201, tokenlessPost.statusCode());
-            assertEquals(204, owner.json("DELETE", "/api/posts/" + body(tokenlessPost).path("id").asLong(), null, null).statusCode());
+            assertEquals(403, tokenlessPost.statusCode());
+            assertEquals(0, body(owner.get("/api/posts")).path("totalElements").asLong());
             HttpResponse<byte[]> created = owner.json("POST", "/api/posts", token, post("Google 게시글"));
             assertEquals(201, created.statusCode());
             long postId = body(created).path("id").asLong();

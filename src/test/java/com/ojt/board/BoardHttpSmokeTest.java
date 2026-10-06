@@ -54,18 +54,19 @@ class BoardHttpSmokeTest {
         try (HttpClient client = HttpClient.newBuilder().cookieHandler(cookies)
                 .connectTimeout(Duration.ofSeconds(10)).build()) {
             String token = csrf(client);
-            String sessionId = cookies.getCookieStore().getCookies().stream()
-                    .filter(cookie -> cookie.getName().equals("JSESSIONID"))
-                    .findFirst().orElseThrow().getValue();
+            assertFalse(cookies.getCookieStore().getCookies().stream()
+                    .anyMatch(cookie -> cookie.getName().equals("JSESSIONID")));
             HttpResponse<byte[]> signup = json(client, "POST", "/api/auth/signup", token,
                     Map.of("email", "http@example.com", "nickname", "HTTP 사용자", "password", "password123"));
             assertEquals(201, signup.statusCode());
+            assertFalse(cookies.getCookieStore().getCookies().stream()
+                    .anyMatch(cookie -> cookie.getName().equals("JSESSIONID")));
             HttpResponse<byte[]> login = json(client, "POST", "/api/auth/login", token,
                     Map.of("email", "http@example.com", "password", "password123"));
             assertEquals(200, login.statusCode());
-            assertEquals(sessionId, cookies.getCookieStore().getCookies().stream()
+            assertFalse(cookies.getCookieStore().getCookies().stream()
                     .filter(cookie -> cookie.getName().equals("JSESSIONID"))
-                    .findFirst().orElseThrow().getValue());
+                    .findFirst().orElseThrow().getValue().isBlank());
             token = csrf(client);
 
             HttpResponse<byte[]> post = json(client, "POST", "/api/posts", token,
@@ -117,6 +118,7 @@ class BoardHttpSmokeTest {
                     Map.of("email", "file-view@example.com", "nickname", "파일 조회", "password", "1234")).statusCode());
             assertEquals(200, json(client, "POST", "/api/auth/login", token,
                     Map.of("email", "file-view@example.com", "password", "1234")).statusCode());
+            token = csrf(client);
             long postId = body(json(client, "POST", "/api/posts", token,
                     Map.of("title", "HTML file", "content", "Browser view"))).path("id").asLong();
             try {

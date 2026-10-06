@@ -7,10 +7,12 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.matchesPattern;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -45,7 +47,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
-@SpringBootTest
+@SpringBootTest(properties = "app.security.csrf.rate-limit.max-requests=3")
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 class AuthControllerTest {
@@ -65,8 +67,12 @@ class AuthControllerTest {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
+    @Autowired
+    private CsrfTokenRateLimiter csrfTokenRateLimiter;
+
     @BeforeEach
     void setUp() {
+        csrfTokenRateLimiter.clear();
         userRepository.deleteAll();
     }
 
@@ -97,7 +103,7 @@ class AuthControllerTest {
         MockHttpSession authenticatedSession =
                 (MockHttpSession) loginResult.getRequest().getSession(false);
         assertNotNull(authenticatedSession);
-        assertEquals(oldSessionId, authenticatedSession.getId());
+        assertNotEquals(oldSessionId, authenticatedSession.getId());
 
         mockMvc.perform(get("/api/auth/me").session(authenticatedSession))
                 .andExpect(status().isOk())
@@ -108,7 +114,7 @@ class AuthControllerTest {
         CsrfData authenticatedCsrf = fetchCsrf(authenticatedSession);
         assertNotEquals(initialCsrf.token(), authenticatedCsrf.token());
 
-        mockMvc.perform(post("/api/auth/logout").session(authenticatedSession))
+        mockMvc.perform(csrfPost("/api/auth/logout", authenticatedCsrf).session(authenticatedSession))
                 .andExpect(status().isNoContent())
                 .andExpect(cookie().maxAge("JSESSIONID", 0));
         assertTrue(authenticatedSession.isInvalid());
@@ -128,41 +134,57 @@ class AuthControllerTest {
     }
 
     @Test
-    void csrfEndpointInitializesAnAnonymousSessionAndRetainsItOnLogin() throws Exception {
-        MvcResult initial = mockMvc.perform(get("/api/auth/csrf"))
-                .andExpect(status().isOk())
-                .andReturn();
-        MockHttpSession session = (MockHttpSession) initial.getRequest().getSession(false);
-        assertNotNull(session);
-        String sessionId = session.getId();
-        CsrfData csrf = fetchCsrf(session);
+    void csrfEndpointDoesNotCreateAServerSessionAndLoginCreatesOne() throws Exception {
+        CsrfData csrf = fetchCsrf(null);
         signup(csrf, "1234");
 
-        mockMvc.perform(get("/api/auth/me").session(session))
+        mockMvc.perform(get("/api/auth/me"))
                 .andExpect(status().isUnauthorized());
         MvcResult login = mockMvc.perform(csrfPost("/api/auth/login", csrf)
-                        .session(session)
                         .content(objectMapper.writeValueAsBytes(new AuthRequest.Login(EMAIL, "1234"))))
                 .andExpect(status().isOk())
                 .andReturn();
 
-        assertEquals(sessionId, login.getRequest().getSession(false).getId());
+        MockHttpSession session = (MockHttpSession) login.getRequest().getSession(false);
+        assertNotNull(session);
         mockMvc.perform(get("/api/auth/me").session(session))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.email").value(EMAIL));
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"signup", "login", "logout"})
-    void authPostAcceptsMissingCsrfToken(String operation) throws Exception {
-        assertSuccessfulAuthPost(operation, prepareAuthPost(operation));
+    @Test
+    void csrfEndpointRateLimitsRepeatedRequestsWithoutAllocatingSessions() throws Exception {
+        String remoteAddress = "198.51.100.21";
+        for (int request = 0; request < 3; request++) {
+            MvcResult result = mockMvc.perform(get("/api/auth/csrf")
+                            .with(mock -> { mock.setRemoteAddr(remoteAddress); return mock; }))
+                    .andExpect(status().isOk())
+                    .andReturn();
+            assertNull(result.getRequest().getSession(false));
+        }
+
+        MvcResult blocked = mockMvc.perform(get("/api/auth/csrf")
+                .with(mock -> { mock.setRemoteAddr(remoteAddress); return mock; }))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string("Retry-After", matchesPattern("[1-9][0-9]*")))
+                .andExpect(cookie().doesNotExist("XSRF-TOKEN"))
+                .andExpect(jsonPath("$.message").isNotEmpty())
+                .andReturn();
+        assertNull(blocked.getRequest().getSession(false));
+        assertTrue(Long.parseLong(blocked.getResponse().getHeader("Retry-After")) <= 60);
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"signup", "login", "logout"})
-    void authPostAcceptsMismatchedCsrfToken(String operation) throws Exception {
+    void authPostRejectsMissingCsrfToken(String operation) throws Exception {
+        assertCsrfRejected(operation, prepareAuthPost(operation));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"signup", "login", "logout"})
+    void authPostRejectsMismatchedCsrfToken(String operation) throws Exception {
         CsrfData csrf = fetchCsrf(null);
-        assertSuccessfulAuthPost(operation, prepareAuthPost(operation)
+        assertCsrfRejected(operation, prepareAuthPost(operation)
                 .cookie(csrf.cookie())
                 .header(csrf.headerName(), "mismatched-" + csrf.token()));
     }
@@ -174,8 +196,7 @@ class AuthControllerTest {
         MockHttpSession session = new MockHttpSession();
 
         for (int attempt = 0; attempt < 8; attempt++) {
-            mockMvc.perform(post("/api/auth/login").session(session)
-                            .contentType(MediaType.APPLICATION_JSON)
+            mockMvc.perform(csrfPost("/api/auth/login", csrf).session(session)
                             .content(objectMapper.writeValueAsBytes(
                                     new AuthRequest.Login(EMAIL, "incorrect-password"))))
                     .andExpect(status().isUnauthorized())
@@ -184,8 +205,7 @@ class AuthControllerTest {
         mockMvc.perform(get("/api/auth/me").session(session))
                 .andExpect(status().isUnauthorized());
 
-        mockMvc.perform(post("/api/auth/login").session(session)
-                        .contentType(MediaType.APPLICATION_JSON)
+        mockMvc.perform(csrfPost("/api/auth/login", csrf).session(session)
                         .content(objectMapper.writeValueAsBytes(new AuthRequest.Login(EMAIL, PASSWORD))))
                 .andExpect(status().isOk());
         mockMvc.perform(get("/api/auth/me").session(session))
@@ -361,8 +381,8 @@ class AuthControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsBytes(body));
         if (operation.equals("logout")) {
-            MvcResult login = mockMvc.perform(post("/api/auth/login")
-                            .contentType(MediaType.APPLICATION_JSON)
+            CsrfData csrf = fetchCsrf(null);
+            MvcResult login = mockMvc.perform(csrfPost("/api/auth/login", csrf)
                             .content(objectMapper.writeValueAsBytes(new AuthRequest.Login(EMAIL, PASSWORD))))
                     .andExpect(status().isOk())
                     .andReturn();
@@ -371,27 +391,16 @@ class AuthControllerTest {
         return request;
     }
 
-    private void assertSuccessfulAuthPost(String operation, MockHttpServletRequestBuilder request) throws Exception {
-        int expectedStatus = switch (operation) {
-            case "signup" -> 201;
-            case "login" -> 200;
-            case "logout" -> 204;
-            default -> throw new IllegalArgumentException(operation);
-        };
+    private void assertCsrfRejected(String operation, MockHttpServletRequestBuilder request) throws Exception {
         MvcResult result = mockMvc.perform(request)
-                .andExpect(status().is(expectedStatus))
+                .andExpect(status().isForbidden())
                 .andReturn();
-        assertEquals(1, userRepository.count());
-        if (operation.equals("login")) {
+        assertEquals(operation.equals("signup") ? 0 : 1, userRepository.count());
+        if (operation.equals("logout")) {
             MockHttpSession session = (MockHttpSession) result.getRequest().getSession(false);
             assertNotNull(session);
             mockMvc.perform(get("/api/auth/me").session(session))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.email").value(EMAIL));
-        } else if (operation.equals("logout")) {
-            assertNull(result.getRequest().getSession(false));
-            assertNotNull(result.getResponse().getCookie("JSESSIONID"));
-            assertEquals(0, result.getResponse().getCookie("JSESSIONID").getMaxAge());
+                    .andExpect(status().isOk());
         }
     }
 
@@ -482,6 +491,9 @@ class AuthControllerTest {
         Cookie tokenCookie = result.getResponse().getCookie("XSRF-TOKEN");
         assertNotNull(tokenCookie);
         assertEquals(body.path("token").asText(), tokenCookie.getValue());
+        if (session == null) {
+            assertNull(result.getRequest().getSession(false), "CSRF token issuance must not allocate a server session");
+        }
         return new CsrfData(tokenCookie, body.path("headerName").asText(), body.path("token").asText());
     }
 

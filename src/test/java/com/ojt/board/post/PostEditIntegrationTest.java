@@ -213,12 +213,11 @@ class PostEditIntegrationTest {
     }
 
     @Test
-    void authenticatedSessionCanEditWithoutAdditionalHeader() throws Exception {
+    void authenticatedEditWithoutCsrfHeaderIsRejectedWithoutChanges() throws Exception {
         Fixture fixture = fixture(textFile("keep.txt"));
         mockMvc.perform(editRequest(fixture.post().id(), editBody(fixture)).with(user(author)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.title").value("수정 제목"));
-        assertEquals(1, attachmentRepository.findByPostIdOrderByIdAsc(fixture.post().id()).size());
+                .andExpect(status().isForbidden());
+        assertOriginalPreserved(fixture);
     }
 
     @Test
