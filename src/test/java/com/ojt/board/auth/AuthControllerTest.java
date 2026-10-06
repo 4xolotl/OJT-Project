@@ -39,6 +39,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -47,7 +48,12 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
-@SpringBootTest(properties = "app.security.csrf.rate-limit.max-requests=3")
+@SpringBootTest(properties = {
+        "app.security.csrf.rate-limit.capacity=3",
+        "app.security.csrf.rate-limit.refill-tokens=3",
+        "app.security.csrf.rate-limit.refill-period=1m",
+        "app.security.csrf.rate-limit.max-sources=1"
+})
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 class AuthControllerTest {
@@ -167,11 +173,31 @@ class AuthControllerTest {
                 .with(mock -> { mock.setRemoteAddr(remoteAddress); return mock; }))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(header().string("Retry-After", matchesPattern("[1-9][0-9]*")))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsString("no-store")))
                 .andExpect(cookie().doesNotExist("XSRF-TOKEN"))
                 .andExpect(jsonPath("$.message").isNotEmpty())
                 .andReturn();
         assertNull(blocked.getRequest().getSession(false));
         assertTrue(Long.parseLong(blocked.getResponse().getHeader("Retry-After")) <= 60);
+    }
+
+    @Test
+    void csrfEndpointReturnsServiceUnavailableWhenSourceTrackingIsAtCapacity() throws Exception {
+        MvcResult allowed = mockMvc.perform(get("/api/auth/csrf")
+                        .with(mock -> { mock.setRemoteAddr("198.51.100.31"); return mock; }))
+                .andExpect(status().isOk())
+                .andReturn();
+        assertNull(allowed.getRequest().getSession(false));
+
+        MvcResult blocked = mockMvc.perform(get("/api/auth/csrf")
+                        .with(mock -> { mock.setRemoteAddr("198.51.100.32"); return mock; }))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(header().string(HttpHeaders.RETRY_AFTER, matchesPattern("[1-9][0-9]*")))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsString("no-store")))
+                .andExpect(cookie().doesNotExist("XSRF-TOKEN"))
+                .andExpect(jsonPath("$.message").isNotEmpty())
+                .andReturn();
+        assertNull(blocked.getRequest().getSession(false));
     }
 
     @ParameterizedTest
@@ -359,6 +385,8 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.paths['/api/auth/login']").exists())
                 .andExpect(jsonPath("$.paths['/api/auth/signup'].post.responses['201']").exists())
                 .andExpect(jsonPath("$.paths['/api/auth/csrf'].get.parameters").doesNotExist())
+                .andExpect(jsonPath("$.paths['/api/auth/csrf'].get.responses['429']").exists())
+                .andExpect(jsonPath("$.paths['/api/auth/csrf'].get.responses['503']").exists())
                 .andExpect(jsonPath("$.paths['/api/auth/logout'].post.responses['204']").exists());
         mockMvc.perform(get("/v3/api-docs/swagger-config"))
                 .andExpect(status().isOk())
@@ -482,6 +510,7 @@ class AuthControllerTest {
         }
         MvcResult result = mockMvc.perform(request)
                 .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsString("no-store")))
                 .andExpect(jsonPath("$.token").isNotEmpty())
                 .andExpect(jsonPath("$.headerName").value("X-XSRF-TOKEN"))
                 .andExpect(jsonPath("$.parameterName").value("_csrf"))

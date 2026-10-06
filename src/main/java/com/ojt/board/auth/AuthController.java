@@ -2,6 +2,7 @@ package com.ojt.board.auth;
 
 import java.util.Map;
 
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -47,8 +48,12 @@ public class AuthController {
 
     @GetMapping("/csrf")
     @Operation(summary = "CSRF 토큰 발급", description = "서버 세션을 만들지 않고 쿠키 기반 CSRF 토큰을 발급합니다. "
-            + "로그인·로그아웃 후 다시 조회할 수 있습니다. 기본 설정은 출발지 주소별 1분에 20회입니다.")
+            + "로그인·로그아웃 후 다시 조회할 수 있습니다.")
     @ApiResponse(responseCode = "429", description = "CSRF 토큰 요청 제한 초과",
+            headers = @Header(name = HttpHeaders.RETRY_AFTER,
+                    description = "다시 요청할 때까지 남은 초",
+                    schema = @Schema(type = "integer", format = "int64", minimum = "1")))
+    @ApiResponse(responseCode = "503", description = "CSRF 토큰 요청 제한 상태 저장소 포화",
             headers = @Header(name = HttpHeaders.RETRY_AFTER,
                     description = "다시 요청할 때까지 남은 초",
                     schema = @Schema(type = "integer", format = "int64", minimum = "1")))
@@ -56,16 +61,25 @@ public class AuthController {
         CsrfTokenRateLimiter.Decision decision = csrfTokenRateLimiter.acquire(request.getRemoteAddr());
         if (!decision.permitted()) {
             if (decision.shouldLog()) {
-                log.warn("CSRF token issuance rate limit exceeded: path=/api/auth/csrf source={}",
-                        request.getRemoteAddr());
+                log.warn("CSRF token issuance rejected: path=/api/auth/csrf reason={} source={}",
+                        decision.reason(), request.getRemoteAddr());
             }
-            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+            HttpStatus status = decision.reason() == CsrfTokenRateLimiter.DecisionReason.SOURCE_CAPACITY
+                    ? HttpStatus.SERVICE_UNAVAILABLE
+                    : HttpStatus.TOO_MANY_REQUESTS;
+            String message = status == HttpStatus.SERVICE_UNAVAILABLE
+                    ? "CSRF 토큰 발급을 일시적으로 처리할 수 없습니다. 잠시 후 다시 시도해 주세요."
+                    : "CSRF 토큰 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.";
+            return ResponseEntity.status(status)
                     .header(HttpHeaders.RETRY_AFTER, Long.toString(decision.retryAfterSeconds()))
-                    .body(Map.of("message", "CSRF 토큰 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요."));
+                    .cacheControl(CacheControl.noStore())
+                    .body(Map.of("message", message));
         }
 
         CsrfToken csrfToken = (CsrfToken) request.getAttribute(CsrfToken.class.getName());
-        return ResponseEntity.ok(csrfToken);
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(csrfToken);
     }
 
     @PostMapping("/signup")

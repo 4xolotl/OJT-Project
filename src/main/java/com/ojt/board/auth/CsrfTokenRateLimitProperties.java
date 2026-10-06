@@ -6,19 +6,23 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties("app.security.csrf.rate-limit")
 public record CsrfTokenRateLimitProperties(
-        int maxRequests,
-        Duration window,
-        int maxEntries
+        int capacity,
+        int refillTokens,
+        Duration refillPeriod,
+        int maxSources
 ) {
     public CsrfTokenRateLimitProperties {
-        if (maxRequests < 1) {
-            throw new IllegalArgumentException("CSRF max-requests must be positive");
+        if (capacity < 1) {
+            throw new IllegalArgumentException("CSRF rate-limit capacity must be positive");
         }
-        if (window == null || window.toMillis() < 1) {
-            throw new IllegalArgumentException("CSRF rate-limit window must be at least 1ms");
+        if (refillTokens < 1) {
+            throw new IllegalArgumentException("CSRF rate-limit refill-tokens must be positive");
         }
-        if (maxEntries < 1) {
-            throw new IllegalArgumentException("CSRF max-entries must be positive");
+        if (refillPeriod == null || refillPeriod.toMillis() < 1) {
+            throw new IllegalArgumentException("CSRF rate-limit refill-period must be at least 1ms");
+        }
+        if (maxSources < 1) {
+            throw new IllegalArgumentException("CSRF rate-limit max-sources must be positive");
         }
     }
 }

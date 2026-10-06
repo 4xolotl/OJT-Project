@@ -16,9 +16,12 @@ app:
   security:
     csrf:
       rate-limit:
-        max-requests: ${CSRF_MAX_REQUESTS:20}
-        window: ${CSRF_RATE_LIMIT_WINDOW:1m}
-        max-entries: ${CSRF_RATE_LIMIT_MAX_ENTRIES:4096}
+        # Local baseline. Tune these values from observed token traffic, instance
+        # capacity and the exported rate-limit metrics in each deployment.
+        capacity: ${CSRF_RATE_LIMIT_CAPACITY:20}
+        refill-tokens: ${CSRF_RATE_LIMIT_REFILL_TOKENS:20}
+        refill-period: ${CSRF_RATE_LIMIT_REFILL_PERIOD:1m}
+        max-sources: ${CSRF_RATE_LIMIT_MAX_SOURCES:4096}
   oauth:
     google:
       enabled: ${GOOGLE_LOGIN_ENABLED:false}

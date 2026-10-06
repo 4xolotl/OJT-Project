@@ -15,4 +15,7 @@ app:
     csrf:
       rate-limit:
         # Shared integration-test contexts issue many tokens from loopback.
-        max-requests: 1000
+        capacity: 1000
+        refill-tokens: 1000
+        refill-period: 1m
+        max-sources: 4096

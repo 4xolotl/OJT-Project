@@ -1,5 +1,10 @@
 const REQUEST_TIMEOUT_MS = 15000;
 const UPLOAD_TIMEOUT_MS = 60000;
+const AUTH_STATE_CHANGE_PATHS = new Set(['/api/auth/login', '/api/auth/logout']);
+
+let cachedCsrfToken = null;
+let csrfTokenRequest = null;
+let csrfTokenGeneration = 0;
 
 export class ApiError extends Error {
   constructor(message, status = 0, mayHaveSucceeded = false) {
@@ -60,6 +65,59 @@ async function fetchJson(path, { method, body, headers, signal, onSend, onRespon
   return data;
 }
 
+function invalidateCsrfToken() {
+  cachedCsrfToken = null;
+  csrfTokenGeneration += 1;
+}
+
+function startCsrfTokenRequest() {
+  const controller = new AbortController();
+  const generation = csrfTokenGeneration;
+  const request = { controller, consumers: 0, settled: false, promise: null };
+  request.promise = (async () => {
+    try {
+      const csrf = await fetchJson('/api/auth/csrf', {
+        method: 'GET',
+        headers: new Headers({ Accept: 'application/json' }),
+        signal: controller.signal
+      });
+      if (typeof csrf?.headerName !== 'string' || !csrf.headerName.trim()
+          || typeof csrf.token !== 'string' || !csrf.token.trim()) {
+        throw new ApiError('요청 보안 토큰을 확인할 수 없어요. 다시 시도해 주세요.');
+      }
+      const token = { headerName: csrf.headerName, token: csrf.token };
+      if (generation === csrfTokenGeneration) cachedCsrfToken = token;
+      return token;
+    } finally {
+      request.settled = true;
+      if (csrfTokenRequest === request) csrfTokenRequest = null;
+    }
+  })();
+  csrfTokenRequest = request;
+  return request;
+}
+
+async function getCsrfToken(signal) {
+  if (signal.aborted) throw cancelledError();
+  if (cachedCsrfToken) return cachedCsrfToken;
+
+  const request = csrfTokenRequest ?? startCsrfTokenRequest();
+  request.consumers += 1;
+  let cancel;
+  const cancellation = new Promise((resolve, reject) => {
+    cancel = () => reject(cancelledError());
+    signal.addEventListener('abort', cancel, { once: true });
+  });
+  try {
+    return await Promise.race([request.promise, cancellation]);
+  } finally {
+    signal.removeEventListener('abort', cancel);
+    request.consumers -= 1;
+    // A cancelled caller must not abort a token request still needed by another mutation.
+    if (request.consumers === 0 && !request.settled) request.controller.abort();
+  }
+}
+
 export async function request(path, { method = 'GET', body, signal } = {}) {
   validatePath(path);
   if (typeof method !== 'string') throw new ApiError('요청 방식을 확인해 주세요.');
@@ -100,16 +158,7 @@ export async function request(path, { method = 'GET', body, signal } = {}) {
     const headers = new Headers({ Accept: 'application/json' });
     if (serializedBody !== undefined && !multipart) headers.set('Content-Type', 'application/json');
     if (mutates) {
-      // Fetch a fresh token for every mutation, including after login or logout.
-      const csrf = await fetchJson('/api/auth/csrf', {
-        method: 'GET',
-        headers: new Headers({ Accept: 'application/json' }),
-        signal: controller.signal
-      });
-      if (typeof csrf?.headerName !== 'string' || !csrf.headerName.trim()
-          || typeof csrf.token !== 'string' || !csrf.token.trim()) {
-        throw new ApiError('요청 보안 토큰을 확인할 수 없어요. 다시 시도해 주세요.');
-      }
+      const csrf = await getCsrfToken(controller.signal);
       try {
         headers.set(csrf.headerName, csrf.token);
       } catch {
@@ -117,11 +166,20 @@ export async function request(path, { method = 'GET', body, signal } = {}) {
       }
     }
     // Mutations are sent once. A timeout can occur after the server has committed a change.
-    return await fetchJson(path, {
+    const result = await fetchJson(path, {
       method, body: serializedBody, headers, signal: controller.signal,
       onSend: mutates ? () => { mutationSent = true; } : undefined,
-      onResponse: mutates ? status => { mutationStatus = status; } : undefined
+      onResponse: mutates ? status => {
+        mutationStatus = status;
+        // The API deliberately uses one generic 403 response for authorization and CSRF failures.
+        // Spring also clears the server-side expectation after successful authentication changes.
+        // Clearing only the cache is safe; this client never retries a rejected mutation.
+        if (status === 403 || (status >= 200 && status < 300 && AUTH_STATE_CHANGE_PATHS.has(path))) {
+          invalidateCsrfToken();
+        }
+      } : undefined
     });
+    return result;
   } catch (error) {
     if (error instanceof ApiError) {
       error.mayHaveSucceeded = mayHaveSucceeded(error.status);
