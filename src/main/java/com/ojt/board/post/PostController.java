@@ -6,6 +6,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Encoding;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -75,17 +76,21 @@ public class PostController {
     }
 
     @PutMapping(value = "/{postId}", consumes = MediaType.APPLICATION_JSON_VALUE)
-    @Operation(summary = "게시글 수정", description = "로그인한 사용자가 제목과 본문을 수정할 수 있습니다.")
+    @Operation(summary = "게시글 수정", description = "게시글 작성자만 제목과 본문을 수정할 수 있습니다.")
+    @ApiResponse(responseCode = "200", description = "게시글 수정 완료")
+    @ApiResponse(responseCode = "403", description = "게시글 작성자가 아님")
     public PostResponse update(@PathVariable Long postId, @Parameter(hidden = true) @AuthenticationPrincipal BoardPrincipal user,
                                @Valid @RequestBody PostRequest request) {
         return postService.update(postId, user.getId(), request);
     }
 
     @PutMapping(value = "/{postId}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @Operation(summary = "게시글 수정", description = "로그인이 필요합니다. post JSON에는 제목·본문과 최초 조회한 updatedAt, attachmentIds 및 삭제할 deletedFileIds를 보냅니다. ID 목록은 필수이며 빈 배열을 허용합니다(최대 1000개, 양수·중복 불가). 원본이 달라졌으면 409를 반환합니다. 선택 files는 신규 파일 최대 5개, 개별 10 MiB, 전체 요청 50 MiB까지입니다. 실패하면 DB 변경을 롤백하고 신규 파일 정리를 시도하며, 기존 파일은 커밋 후 삭제합니다.",
+    @Operation(summary = "게시글 수정", description = "게시글 작성자만 수정할 수 있습니다. post JSON에는 제목·본문과 최초 조회한 updatedAt, attachmentIds 및 삭제할 deletedFileIds를 보냅니다. ID 목록은 필수이며 빈 배열을 허용합니다(최대 1000개, 양수·중복 불가). 원본이 달라졌으면 409를 반환합니다. 선택 files는 신규 파일 최대 5개, 개별 10 MiB, 전체 요청 50 MiB까지입니다. 실패하면 DB 변경을 롤백하고 신규 파일 정리를 시도하며, 기존 파일은 커밋 후 삭제합니다.",
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(content = @Content(
                     mediaType = MediaType.MULTIPART_FORM_DATA_VALUE,
                     encoding = @Encoding(name = "post", contentType = MediaType.APPLICATION_JSON_VALUE))))
+    @ApiResponse(responseCode = "200", description = "게시글 수정 완료")
+    @ApiResponse(responseCode = "403", description = "게시글 작성자가 아님")
     public PostResponse updateWithFiles(@PathVariable Long postId,
                                          @Parameter(hidden = true) @AuthenticationPrincipal BoardPrincipal user,
                                          @Valid @RequestPart("post") PostEditRequest request,
@@ -95,7 +100,9 @@ public class PostController {
 
     @DeleteMapping("/{postId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @Operation(summary = "게시글 삭제", description = "로그인한 사용자가 삭제할 수 있습니다. 댓글과 첨부파일도 함께 삭제됩니다.")
+    @Operation(summary = "게시글 삭제", description = "게시글 작성자만 삭제할 수 있습니다. 댓글과 첨부파일도 함께 삭제됩니다.")
+    @ApiResponse(responseCode = "204", description = "게시글 삭제 완료", content = @Content)
+    @ApiResponse(responseCode = "403", description = "게시글 작성자가 아님")
     public void delete(@PathVariable Long postId, @Parameter(hidden = true) @AuthenticationPrincipal BoardPrincipal user) {
         postService.delete(postId, user.getId());
     }

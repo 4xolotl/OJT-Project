@@ -193,21 +193,15 @@ class PostEditIntegrationTest {
     }
 
     @Test
-    void authenticatedUserCanEditTextAndFilesWithCurrentSnapshot() throws Exception {
+    void nonAuthorCannotEditTextOrFilesWithCurrentSnapshot() throws Exception {
         Fixture fixture = fixture(textFile("keep.txt"));
         User other = userRepository.save(new User("other@example.com", "다른 회원", PASSWORD_HASH));
         Map<String, Object> body = editBody(fixture);
         body.put("deletedFileIds", fixture.ids());
         mockMvc.perform(withCsrf(editRequest(fixture.post().id(), body, textFile("new.txt")).with(user(other))))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.title").value("수정 제목"))
-                .andExpect(jsonPath("$.content").value("수정 본문"))
-                .andExpect(jsonPath("$.author.id").value(author.getId()));
-        List<Attachment> attachments = attachmentRepository.findByPostIdOrderByIdAsc(fixture.post().id());
-        assertEquals(1, attachments.size());
-        assertEquals("new.txt", attachments.getFirst().getOriginalFilename());
-        assertEquals(1, storedFileCount());
-        assertFalse(attachmentRepository.existsById(fixture.ids().getFirst()));
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").value("게시글 작성자만 수정하거나 삭제할 수 있습니다."));
+        assertOriginalPreserved(fixture);
     }
 
     @Test

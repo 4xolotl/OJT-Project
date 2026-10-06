@@ -59,10 +59,11 @@ public class CommentController {
     }
 
     @PutMapping("/{commentId}")
-    @Operation(summary = "댓글 수정", description = "로그인한 사용자가 댓글을 수정할 수 있습니다.")
+    @Operation(summary = "댓글 수정", description = "댓글 작성자만 수정할 수 있습니다.")
     @ApiResponse(responseCode = "200", description = "댓글 수정 완료")
     @ApiResponse(responseCode = "400", description = "내용 검증 실패")
     @ApiResponse(responseCode = "401", description = "로그인 필요")
+    @ApiResponse(responseCode = "403", description = "댓글 작성자가 아님")
     @ApiResponse(responseCode = "404", description = "게시글 또는 해당 게시글의 댓글 없음")
     public CommentResponse update(
             @PathVariable Long postId,
@@ -74,9 +75,10 @@ public class CommentController {
     }
 
     @DeleteMapping("/{commentId}")
-    @Operation(summary = "댓글 삭제", description = "로그인한 사용자가 댓글을 삭제할 수 있습니다.")
+    @Operation(summary = "댓글 삭제", description = "댓글 작성자만 삭제할 수 있습니다.")
     @ApiResponse(responseCode = "204", description = "댓글 삭제 완료")
     @ApiResponse(responseCode = "401", description = "로그인 필요")
+    @ApiResponse(responseCode = "403", description = "댓글 작성자가 아님")
     @ApiResponse(responseCode = "404", description = "게시글 또는 해당 게시글의 댓글 없음")
     public ResponseEntity<Void> delete(
             @PathVariable Long postId,

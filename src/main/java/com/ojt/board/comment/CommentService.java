@@ -48,6 +48,7 @@ public class CommentService {
     public CommentResponse update(Long postId, Long commentId, Long actorId, CommentRequest request) {
         lockPost(postId);
         Comment comment = findComment(postId, commentId);
+        comment.requireAuthor(actorId);
         comment.updateContent(request.content());
         commentRepository.flush();
         return CommentResponse.from(comment);
@@ -57,6 +58,7 @@ public class CommentService {
     public void delete(Long postId, Long commentId, Long actorId) {
         lockPost(postId);
         Comment comment = findComment(postId, commentId);
+        comment.requireAuthor(actorId);
         commentRepository.delete(comment);
     }
 
