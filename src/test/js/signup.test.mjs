@@ -282,7 +282,7 @@ await check('Duplicate submits and login navigation are blocked during signup', 
 
 await check('Signup redirects to login without auto-login, passwords in URLs, or browser storage', async () => {
   for (const [returnTo, expected] of [
-    ['https://example.org/', 'https://example.org/'],
+    ['https://example.org/', '/'],
     ['javascript:alert(1)', '/'],
     ['/post.html?id=9&keyword=Spring&page=2&size=50&preview=1#comments', '/post.html?id=9&keyword=Spring&page=2&size=50#comments']
   ]) {

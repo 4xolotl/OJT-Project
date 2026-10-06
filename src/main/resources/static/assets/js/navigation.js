@@ -2,7 +2,7 @@ import { listUrl } from './ui.js';
 
 // Rebuild known page URLs instead of trusting a caller-supplied navigation target.
 export function safeReturnUrl(input) {
-  if (typeof input !== 'string' || !input.startsWith('/') || input.startsWith('//')) return '/';
+  if (typeof input !== 'string' || input.length > 2048 || !input.startsWith('/') || input.startsWith('//')) return '/';
   let decoded;
   try { decoded = decodeURIComponent(input); }
   catch { return '/'; }
@@ -24,10 +24,6 @@ export function safeReturnUrl(input) {
 }
 
 export function loginReturnUrl(input) {
-  if (typeof input === 'string' && /^https?:\/\//i.test(input) && !/[\\\u0000-\u001f\u007f]/.test(input)) {
-    try { return new URL(input).href; }
-    catch { return '/'; }
-  }
   return safeReturnUrl(input);
 }
 
