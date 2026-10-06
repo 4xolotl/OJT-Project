@@ -207,7 +207,7 @@ async function harness({ session = async () => authenticated, loadPost = async (
 const checks = [];
 async function check(name, run) { await run(); checks.push(name); }
 
-await check('Post and comment bodies use HTML while titles and author labels remain text', async () => {
+await check('Post, comment, title, and author values are rendered as text', async () => {
   const body = '<strong>게시글 본문</strong>\n둘째 줄';
   const commentBody = '<em>댓글 내용</em>';
   const title = '<b>게시글 제목</b>';
@@ -219,10 +219,10 @@ await check('Post and comment bodies use HTML while titles and author labels rem
       totalElements: 1, totalPages: 1, page: 0, size: 10, first: true, last: true
     })
   });
-  assert.equal(page.node('post-content').innerHTML, body);
+  assert.equal(page.node('post-content').textContent, body);
   assert.equal(page.node('post-title').textContent, title);
   assert.equal(page.node('post-author').textContent, nickname);
-  assert.equal(page.node('comment-list').querySelector('.comment-content').innerHTML, commentBody);
+  assert.equal(page.node('comment-list').querySelector('.comment-content').textContent, commentBody);
   assert.equal(page.node('comment-list').querySelector('.comment-author').textContent, nickname);
 });
 

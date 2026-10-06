@@ -50,7 +50,7 @@ public class AttachmentService {
             LocalFileStorage.StoredFile storedFile = fileStorage.store(file);
             removeOnRollback(storedFile.storedFilename());
             attachments.add(new Attachment(post, storedFile.originalFilename(),
-                    storedFile.storedFilename(), storedFile.size()));
+                    storedFile.storedFilename(), storedFile.size(), storedFile.contentType()));
         }
         // Flush here so database failures reach the caller and trigger rollback cleanup.
         return attachmentRepository.saveAllAndFlush(attachments).stream()
@@ -84,7 +84,8 @@ public class AttachmentService {
     public Download download(Long fileId) {
         Attachment attachment = requireAttachment(fileId);
         LocalFileStorage.OpenedFile openedFile = fileStorage.open(attachment.getStoredFilename());
-        return new Download(attachment.getOriginalFilename(), openedFile.resource(), openedFile.size());
+        return new Download(attachment.getOriginalFilename(), attachment.getContentType(),
+                openedFile.resource(), openedFile.size());
     }
 
     @Transactional
@@ -166,5 +167,5 @@ public class AttachmentService {
         }
     }
 
-    public record Download(String originalFilename, Resource resource, long size) {}
+    public record Download(String originalFilename, String contentType, Resource resource, long size) {}
 }

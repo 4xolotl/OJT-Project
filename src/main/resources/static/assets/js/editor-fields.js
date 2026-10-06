@@ -1,4 +1,8 @@
 // Shared field rules for creating and editing posts. The server validates every request again.
+const allowedFileExtensions = new Set([
+  'txt', 'csv', 'png', 'jpg', 'jpeg', 'gif', 'pdf', 'docx', 'xlsx', 'pptx'
+]);
+
 export function postTextErrors(title, content) {
   return {
     title: !title.trim() ? '제목을 입력해 주세요.' : title.length > 200 ? '제목은 200자까지 입력할 수 있어요.' : '',
@@ -14,6 +18,11 @@ export function validateFiles(candidate) {
     if (!file.name.trim() || /[\u0000-\u001f\u007f-\u009f/\\]/.test(file.name)
         || ['.', '..'].includes(file.name) || file.name.normalize('NFC').length > 255) {
       return '파일 이름을 확인해 주세요. 제어 문자와 경로 구분자는 사용할 수 없고, 255자까지 허용돼요.';
+    }
+    const dot = file.name.lastIndexOf('.');
+    const extension = dot > 0 && dot < file.name.length - 1 ? file.name.slice(dot + 1).toLowerCase() : '';
+    if (!allowedFileExtensions.has(extension)) {
+      return 'TXT, CSV, PNG, JPG, GIF, PDF, DOCX, XLSX, PPTX 파일만 첨부할 수 있어요.';
     }
   }
   if (candidate.reduce((total, file) => total + file.size, 0) >= 50 * 1024 * 1024) {

@@ -330,7 +330,8 @@ await check('Five new files are allowed in addition to existing attachments; rej
   assert.equal(page.node('file-error').hidden, false);
   await page.remove(4);
   assert.deepEqual(page.fileNames, ['one.txt', 'two.txt', 'three.txt', 'four.txt']);
-  for (const file of [attachment('empty.txt', ''), { name: 'large.bin', size: 10 * 1024 * 1024 + 1 }, attachment('../path.txt'), attachment('bad\nname.txt'), attachment('a'.repeat(256))]) {
+  for (const file of [attachment('empty.txt', ''), { name: 'large.bin', size: 10 * 1024 * 1024 + 1 },
+    attachment('malware.bin'), attachment('../path.txt'), attachment('bad\nname.txt'), attachment('a'.repeat(256))]) {
     await page.select([file]);
     assert.equal(page.fileNames.length, 4);
     assert.equal(page.node('file-error').hidden, false);
@@ -340,9 +341,9 @@ await check('Five new files are allowed in addition to existing attachments; rej
   await page.select([attachment('valid.txt'), attachment('invalid.txt', '')]);
   assert.deepEqual(page.fileNames, ['one.txt', 'two.txt', 'three.txt']);
   const large = await harness();
-  await large.select(Array.from({ length: 4 }, (_, index) => ({ name: `${index}.bin`, size: 10 * 1024 * 1024 })));
+  await large.select(Array.from({ length: 4 }, (_, index) => ({ name: `${index}.pdf`, size: 10 * 1024 * 1024 })));
   assert.equal(large.fileNames.length, 4);
-  await large.select([{ name: 'fifth.bin', size: 10 * 1024 * 1024 }]);
+  await large.select([{ name: 'fifth.pdf', size: 10 * 1024 * 1024 }]);
   assert.equal(large.fileNames.length, 4);
   assert.ok(large.node('file-error').textContent.includes('50 MiB'));
 });
@@ -353,8 +354,8 @@ await check('One multipart PUT preserves raw text, snapshot version, original nu
   const title = '  수정 🧪 제목  ', content = '\n <script>alert(1)</script>\n 본문  ';
   page.fill(title, content);
   await page.click(page.existingButton(1));
-  const bytes = new Uint8Array([0, 1, 127, 128, 255]);
-  await page.select([attachment('자료.bin', bytes)]); await page.select([attachment('second.txt', 'Second')]);
+  const bytes = new TextEncoder().encode('첨부 내용');
+  await page.select([attachment('자료.txt', bytes)]); await page.select([attachment('second.txt', 'Second')]);
   await page.submit();
   assert.equal(page.mutations.length, 1);
   const call = page.mutations[0];
@@ -367,7 +368,7 @@ await check('One multipart PUT preserves raw text, snapshot version, original nu
     title, content, updatedAt: initialPost.updatedAt, attachmentIds: [11, 12], deletedFileIds: [12]
   });
   const uploaded = call.options.body.getAll('files');
-  assert.deepEqual(Array.from(uploaded, file => file.name), ['자료.bin', 'second.txt']);
+  assert.deepEqual(Array.from(uploaded, file => file.name), ['자료.txt', 'second.txt']);
   assert.deepEqual(new Uint8Array(await uploaded[0].arrayBuffer()), bytes);
   assert.equal(await uploaded[1].text(), 'Second');
   assert.deepEqual(page.redirects, [{ method: 'replace', path: '/post.html?id=7&keyword=Spring&page=2&size=50' }]);

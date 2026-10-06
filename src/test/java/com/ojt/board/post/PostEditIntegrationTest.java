@@ -64,6 +64,8 @@ import org.springframework.test.web.servlet.request.MockMultipartHttpServletRequ
 @ActiveProfiles("test")
 class PostEditIntegrationTest {
 
+    private static final byte[] TEST_FILE_BYTES = "test file body".getBytes(StandardCharsets.UTF_8);
+
     private static final Path STORAGE = createStorageDirectory();
     private static final String PASSWORD_HASH = new BCryptPasswordEncoder().encode("password123");
     private static final String CONFLICT = "게시글 또는 첨부파일이 변경되었습니다. 새로고침 후 다시 수정해 주세요.";
@@ -104,7 +106,7 @@ class PostEditIntegrationTest {
         long keptId = fixture.attachments().get(1).getId();
         Map<String, Object> body = editBody(fixture);
         body.put("deletedFileIds", List.of(deletedId));
-        byte[] bytes = "수정 첨부\n원문\u0000".getBytes(StandardCharsets.UTF_8);
+        byte[] bytes = "수정 첨부\n원문".getBytes(StandardCharsets.UTF_8);
 
         MvcResult result = mockMvc.perform(authenticated(editRequest(fixture.post().id(), body,
                         new MockMultipartFile("files", "수정 자료.txt", "text/plain", bytes))))
@@ -121,9 +123,23 @@ class PostEditIntegrationTest {
         Attachment added = remaining.stream().filter(attachment -> !attachment.getId().equals(keptId)).findFirst().orElseThrow();
         assertEquals("수정 자료.txt", added.getOriginalFilename());
         mockMvc.perform(get("/api/files/{id}/download", deletedId)).andExpect(status().isNotFound());
-        mockMvc.perform(get("/api/files/{id}/download", keptId)).andExpect(status().isOk()).andExpect(content().bytes(new byte[]{1, 2, 3}));
+        mockMvc.perform(get("/api/files/{id}/download", keptId)).andExpect(status().isOk())
+                .andExpect(content().bytes(TEST_FILE_BYTES));
         mockMvc.perform(get("/api/files/{id}/download", added.getId())).andExpect(status().isOk()).andExpect(content().bytes(bytes));
         assertEquals(2, storedFileCount());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"payload.html", "payload.svg"})
+    void rejectsActiveWebAttachmentsDuringEditWithoutChangingThePost(String filename) throws Exception {
+        Fixture fixture = fixture(textFile("keep.txt"));
+        MockMultipartFile activeContent = new MockMultipartFile("files", filename, "text/html",
+                "<script>alert(document.domain)</script>".getBytes(StandardCharsets.UTF_8));
+
+        mockMvc.perform(authenticated(editRequest(fixture.post().id(), editBody(fixture), activeContent)))
+                .andExpect(status().isBadRequest());
+
+        assertOriginalPreserved(fixture);
     }
 
     @Test
@@ -456,7 +472,7 @@ class PostEditIntegrationTest {
     }
 
     private MockMultipartFile textFile(String filename) {
-        return new MockMultipartFile("files", filename, "text/plain", new byte[]{1, 2, 3});
+        return new MockMultipartFile("files", filename, "text/plain", TEST_FILE_BYTES);
     }
 
     private MockHttpServletRequestBuilder authenticated(MockHttpServletRequestBuilder request) throws Exception {
@@ -496,7 +512,7 @@ class PostEditIntegrationTest {
         assertEquals(fixture.attachments().size(), storedFileCount());
         for (Attachment attachment : fixture.attachments()) {
             mockMvc.perform(get("/api/files/{id}/download", attachment.getId())).andExpect(status().isOk())
-                    .andExpect(content().bytes(new byte[]{1, 2, 3}));
+                    .andExpect(content().bytes(TEST_FILE_BYTES));
         }
     }
 
