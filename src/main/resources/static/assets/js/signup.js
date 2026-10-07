@@ -1,6 +1,6 @@
 import { ApiError, currentUser, request } from './api.js';
 import { loginUrl, loginReturnUrl } from './navigation.js';
-import { guardPasswordTransfer, passwordError } from './password-policy.js';
+import { guardPasswordTransfer, passwordError, signupPasswordError } from './password-policy.js';
 
 const $ = id => document.getElementById(id);
 const returnTo = loginReturnUrl(new URLSearchParams(location.search).get('returnTo'));
@@ -93,7 +93,7 @@ async function signup(event) {
   if (nickname.length < 2 || nickname.length > 100) {
     reject('nickname', '닉네임을 2~100자로 입력해 주세요.');
   }
-  const passwordMessage = passwordError(password, 4);
+  const passwordMessage = signupPasswordError(password, email);
   if (passwordMessage) reject('password', passwordMessage);
   if (!confirmation) {
     reject('password-confirm', '비밀번호를 한 번 더 입력해 주세요.');
@@ -164,7 +164,16 @@ $('signup-form').addEventListener('submit', signup);
 $('switch-account').addEventListener('click', switchAccount);
 for (const id of fields) {
   $(id).addEventListener('input', () => {
-    fieldError(id, passwordFields.includes(id) && $(id).value ? passwordError($(id).value) : '');
+    if (id === 'password') {
+      fieldError(id, $(id).value ? signupPasswordError($(id).value, $('email').value.trim()) : '');
+    } else if (id === 'password-confirm') {
+      fieldError(id, $(id).value ? passwordError($(id).value) : '');
+    } else {
+      fieldError(id);
+    }
+    if (id === 'email' && $('password').value) {
+      fieldError('password', signupPasswordError($('password').value, $(id).value.trim()));
+    }
     if (id === 'password') fieldError('password-confirm');
     showError();
   });

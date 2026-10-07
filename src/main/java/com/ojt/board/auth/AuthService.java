@@ -16,9 +16,12 @@ public class AuthService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final SignupPasswordPolicy signupPasswordPolicy;
 
     @Transactional
     public User signup(AuthRequest.Signup request) {
+        signupPasswordPolicy.validate(request.email(), request.password());
+
         if (userRepository.existsByEmail(request.email())) {
             throw new IllegalArgumentException("이미 가입된 이메일입니다.");
         }

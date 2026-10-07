@@ -102,7 +102,7 @@ async function harness({ session = async () => null, mutate = async () => ({ id:
   return {
     node: id => ids.get(id), requests, redirects, storageWrites, document,
     get sessionCalls() { return sessionCalls; },
-    fill({ email = 'tester@example.com', nickname = 'tester', password = 'test-password', confirmation = password } = {}) {
+    fill({ email = 'tester@example.com', nickname = 'tester', password = 'violet river 829', confirmation = password } = {}) {
       ids.get('email').value = email;
       ids.get('nickname').value = nickname;
       ids.get('password').value = password;
@@ -152,16 +152,23 @@ await check('Nickname is trimmed and must remain between 2 and 100 characters', 
   }
 });
 
-await check('Signup enforces printable ASCII length limits without requiring mixed categories', async () => {
-  for (const password of ['        ', '123', 'a'.repeat(73), 'password가', 'password🧪', 'Valid123\n', ' Valid123', 'Valid123 ']) {
+await check('Signup enforces length, character, common-pattern and email-context rules', async () => {
+  for (const password of [
+    ' '.repeat(15), 'violet-river-8', 'a'.repeat(73), 'password가', 'password🧪', 'Valid123\n',
+    'password1234567', 'P@ssw0rd2026!!!!', 'P@ssw0rdP@ssw0rd', 'abcabcabcabcabc', '123456789012345',
+    'qwertyuiopasdfgh', '1qaz2wsx3edc4rfv', 'tester202620262026'
+  ]) {
     const page = await harness();
     page.fill({ password });
     await page.submit();
-    assert.equal(page.requests.length, 0);
+    assert.equal(page.requests.length, 0, `Expected password rejection: ${password}`);
     assert.equal(page.node('password').getAttribute('aria-invalid'), 'true');
     assert.equal(page.node('password').value, password);
   }
-  for (const password of ['1234', 'aaaa', 'AAAA', '!!!!', '12345678', 'a'.repeat(72), '!!!!!!!!', 'ABCDEFGH']) {
+  for (const password of [
+    'violet-river-82', 'onlylowercasephrase', 'ONLYUPPERCASEPHRASE', '204938576102938',
+    '!^>_&{?~#)<[$]+', '  violet river 829  ', 'BlueTesterCoffeeTrail'
+  ]) {
     const page = await harness();
     page.fill({ password });
     await page.submit();
@@ -175,6 +182,11 @@ await check('Both signup password fields guard raw paste/drop and have no trunca
   page.fill({ password: 'Existing1!' });
   for (const id of ['password', 'password-confirm']) {
     assert.equal(page.node(id).getAttribute('maxlength'), undefined);
+    if (id === 'password') {
+      assert.equal(page.node(id).getAttribute('minlength'), '15');
+      assert.ok(page.node('password-hint').textContent.includes('15~72자'));
+      assert.ok(page.node('password-hint').textContent.includes('공백'));
+    }
     for (const type of ['paste', 'drop']) {
       for (const text of ['Valid123\r\n', 'A'.repeat(73)]) {
         const event = await page.transfer(id, type, text);
@@ -191,7 +203,7 @@ await check('Both signup password fields guard raw paste/drop and have no trunca
 });
 
 await check('Confirmation must exactly match the untrimmed password', async () => {
-  for (const confirmation of ['', 'different-password', 'test-password ']) {
+  for (const confirmation of ['', 'different-password', 'violet river 829 ']) {
     const page = await harness();
     page.fill({ confirmation });
     await page.submit();
@@ -202,7 +214,7 @@ await check('Confirmation must exactly match the untrimmed password', async () =
 
 await check('Only email and nickname are trimmed and confirmation is not sent', async () => {
   const page = await harness();
-  const password = String.fromCharCode(65, 97, 48, 33, 34, 39, 92, 96, 126);
+  const password = 'Violet ' + String.fromCharCode(65, 97, 48, 33, 34, 39, 92, 96, 126);
   page.fill({ email: '  tester@example.com  ', nickname: '  tester  ', password });
   await page.submit();
   const { path, options } = page.requests[0];
