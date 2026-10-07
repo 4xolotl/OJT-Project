@@ -124,8 +124,12 @@ async function harness({ session = async () => null, mutate = async () => ({ id:
 const checks = [];
 async function check(name, run) { await run(); checks.push(name); }
 
-await check('Empty, oversized and browser-invalid email never reaches the signup API', async () => {
-  for (const email of [' ', 'a'.repeat(90) + '@example.com', 'invalid-email']) {
+await check('Empty, oversized, browser-invalid and non-ASCII email never reaches the signup API', async () => {
+  for (const email of [
+    ' ', 'a'.repeat(90) + '@example.com', 'invalid-email',
+    'tést@example.com', 'user@faß.de', 'ＴＥＳＴ@example.com',
+    '\u3000tester@example.com\u3000', '\u00a0tester@example.com\u00a0'
+  ]) {
     const page = await harness();
     page.fill({ email });
     page.node('email').validity.typeMismatch = email === 'invalid-email';
@@ -133,6 +137,7 @@ await check('Empty, oversized and browser-invalid email never reaches the signup
     assert.equal(page.requests.length, 0);
     assert.equal(page.node('email').getAttribute('aria-invalid'), 'true');
     assert.equal(page.document.activeElement, page.node('email'));
+    if (/[^\x00-\x7f]/.test(email)) assert.equal(page.node('email').value, email);
   }
 });
 

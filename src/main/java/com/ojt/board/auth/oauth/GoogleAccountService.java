@@ -1,7 +1,9 @@
 package com.ojt.board.auth.oauth;
 
 import com.ojt.board.user.User;
+import com.ojt.board.user.EmailCanonicalizer;
 import com.ojt.board.user.UserRepository;
+import com.ojt.board.auth.CanonicalEmail;
 import jakarta.validation.Validator;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -38,16 +40,22 @@ public class GoogleAccountService {
             throw new OAuth2AuthenticationException(new OAuth2Error("unverified_email",
                     "Google에서 확인된 이메일이 필요합니다.", null));
         }
-        String email = oidcUser.getEmail();
-        if (!validator.validate(new EmailCandidate(email)).isEmpty()) {
-            throw invalidIdentity();
-        }
 
-        // The stable provider subject owns the link. An email/profile change never creates a new link.
+        // The stable provider subject owns an existing link even if profile claims later change.
         OAuthAccount existing = oauthAccountRepository.findByProviderAndSubject(PROVIDER, subject).orElse(null);
         if (existing != null) {
             return new BoardOidcUser(existing.getUser(), oidcUser);
         }
+
+        String rawEmail = oidcUser.getEmail();
+        if (rawEmail == null || rawEmail.length() > 254) {
+            throw invalidIdentity();
+        }
+        String email = EmailCanonicalizer.canonicalize(rawEmail);
+        if (!validator.validate(new EmailCandidate(email)).isEmpty()) {
+            throw invalidIdentity();
+        }
+
         if (userRepository.existsByEmail(email)) {
             throw new OAuth2AuthenticationException(new OAuth2Error("email_conflict",
                     "이미 가입된 이메일입니다. 기존 로그인 방법으로 로그인해 주세요.", null));
@@ -83,5 +91,5 @@ public class GoogleAccountService {
                 "Google 사용자 정보를 확인할 수 없습니다.", null));
     }
 
-    private record EmailCandidate(@NotBlank @Email @Size(max = 254) String value) {}
+    private record EmailCandidate(@NotBlank @Email @Size(max = 254) @CanonicalEmail(max = 254) String value) {}
 }

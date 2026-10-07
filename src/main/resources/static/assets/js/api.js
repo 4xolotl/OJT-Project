@@ -7,12 +7,21 @@ let csrfTokenRequest = null;
 let csrfTokenGeneration = 0;
 
 export class ApiError extends Error {
-  constructor(message, status = 0, mayHaveSucceeded = false) {
+  constructor(message, status = 0, mayHaveSucceeded = false, requestPath, retryAfterSeconds) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.mayHaveSucceeded = mayHaveSucceeded;
+    this.requestPath = requestPath;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
+}
+
+function retryAfterSeconds(response) {
+  const value = response.headers.get('Retry-After');
+  if (value === null || !/^[0-9]+$/.test(value)) return undefined;
+  const seconds = Number(value);
+  return Number.isSafeInteger(seconds) && seconds > 0 ? seconds : undefined;
 }
 
 function validatePath(path) {
@@ -53,14 +62,19 @@ async function fetchJson(path, { method, body, headers, signal, onSend, onRespon
     data = JSON.parse(text);
   } catch {
     if (response.ok) {
-      throw new ApiError('서버 응답을 확인할 수 없어요. 잠시 후 다시 시도해 주세요.', response.status);
+      throw new ApiError(
+        '서버 응답을 확인할 수 없어요. 잠시 후 다시 시도해 주세요.',
+        response.status,
+        false,
+        path
+      );
     }
   }
   if (!response.ok) {
     const message = typeof data?.message === 'string' && data.message.trim()
       ? data.message
       : '요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요.';
-    throw new ApiError(message, response.status);
+    throw new ApiError(message, response.status, false, path, retryAfterSeconds(response));
   }
   return data;
 }

@@ -6,6 +6,7 @@ const $ = id => document.getElementById(id);
 const returnTo = loginReturnUrl(new URLSearchParams(location.search).get('returnTo'));
 const fields = ['email', 'nickname', 'password', 'password-confirm'];
 const passwordFields = ['password', 'password-confirm'];
+const isAsciiEmail = value => /^[\x21-\x7e]+$/.test(value);
 let busy = false;
 let generation = 0;
 let mutationController;
@@ -79,15 +80,18 @@ async function signup(event) {
   if (busy) return;
   showError();
   for (const id of fields) fieldError(id);
-  const email = $('email').value.trim();
+  const rawEmail = $('email').value;
+  const rawEmailIsAscii = /^[\x00-\x7f]*$/.test(rawEmail);
+  const email = rawEmail.trim();
   const nickname = $('nickname').value.trim();
   const password = $('password').value;
   const confirmation = $('password-confirm').value;
-  $('email').value = email;
+  if (rawEmailIsAscii) $('email').value = email;
   $('nickname').value = nickname;
   let invalid;
   const reject = (id, message) => { fieldError(id, message); invalid ??= $(id); };
-  if (!email || email.length > 100 || $('email').validity.typeMismatch) {
+  if (!email || rawEmail.length > 100 || !rawEmailIsAscii
+      || !isAsciiEmail(email) || $('email').validity.typeMismatch) {
     reject('email', email ? '올바른 이메일 주소를 입력해 주세요. (최대 100자)' : '이메일을 입력해 주세요.');
   }
   if (nickname.length < 2 || nickname.length > 100) {

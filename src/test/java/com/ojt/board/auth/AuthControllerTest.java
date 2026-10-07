@@ -21,7 +21,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ojt.board.user.User;
 import com.ojt.board.user.UserRepository;
 import jakarta.servlet.http.Cookie;
+import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -52,7 +54,17 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
         "app.security.csrf.rate-limit.capacity=3",
         "app.security.csrf.rate-limit.refill-tokens=3",
         "app.security.csrf.rate-limit.refill-period=1m",
-        "app.security.csrf.rate-limit.max-sources=1"
+        "app.security.csrf.rate-limit.max-sources=1",
+        "app.security.login.rate-limit.source-account-threshold=3",
+        "app.security.login.rate-limit.account-threshold=4",
+        "app.security.login.rate-limit.source-threshold=5",
+        "app.security.login.rate-limit.initial-backoff=30s",
+        "app.security.login.rate-limit.max-backoff=2m",
+        "app.security.login.rate-limit.record-ttl=10m",
+        "app.security.login.rate-limit.source-record-ttl=1m",
+        "app.security.login.rate-limit.max-source-accounts=100",
+        "app.security.login.rate-limit.max-accounts=100",
+        "app.security.login.rate-limit.max-sources=100"
 })
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -78,10 +90,31 @@ class AuthControllerTest {
     @Autowired
     private CsrfTokenRateLimiter csrfTokenRateLimiter;
 
+    @Autowired
+    private LoginAttemptLimiter loginAttemptLimiter;
+
+    @Autowired
+    private LoginRateLimitProperties loginRateLimitProperties;
+
     @BeforeEach
     void setUp() {
         csrfTokenRateLimiter.clear();
+        loginAttemptLimiter.clear();
         userRepository.deleteAll();
+    }
+
+    @Test
+    void loginRateLimitConfigurationBindsAllPolicyValues() {
+        assertEquals(3, loginRateLimitProperties.sourceAccountThreshold());
+        assertEquals(4, loginRateLimitProperties.accountThreshold());
+        assertEquals(5, loginRateLimitProperties.sourceThreshold());
+        assertEquals(Duration.ofSeconds(30), loginRateLimitProperties.initialBackoff());
+        assertEquals(Duration.ofMinutes(2), loginRateLimitProperties.maxBackoff());
+        assertEquals(Duration.ofMinutes(10), loginRateLimitProperties.recordTtl());
+        assertEquals(Duration.ofMinutes(1), loginRateLimitProperties.sourceRecordTtl());
+        assertEquals(100, loginRateLimitProperties.maxSourceAccounts());
+        assertEquals(100, loginRateLimitProperties.maxAccounts());
+        assertEquals(100, loginRateLimitProperties.maxSources());
     }
 
     @Test
@@ -131,6 +164,24 @@ class AuthControllerTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.message").isNotEmpty());
+    }
+
+    @Test
+    void loginUsesTheSameCanonicalAsciiEmailIdentityAsStorageAndRateLimiting() throws Exception {
+        CsrfData csrf = fetchCsrf(null);
+        userRepository.save(new User(" Test@EXAMPLE.COM ", "canonical-user",
+                passwordEncoder.encode(PASSWORD)));
+
+        mockMvc.perform(csrfPost("/api/auth/login", csrf)
+                        .with(mock -> { mock.setRemoteAddr("198.51.100.44"); return mock; })
+                        .content(objectMapper.writeValueAsBytes(Map.of(
+                                "email", "\tTEST@EXAMPLE.COM ",
+                                "password", PASSWORD))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value("test@example.com"));
+
+        assertEquals(LoginAttemptLimiter.fingerprint(" test@example.com "),
+                LoginAttemptLimiter.fingerprint("TEST@EXAMPLE.COM"));
     }
 
     @Test
@@ -218,27 +269,92 @@ class AuthControllerTest {
     }
 
     @Test
-    void correctPasswordAuthenticatesAfterEightIncorrectAttempts() throws Exception {
+    void repeatedFailuresReturnRetryableLimitWithoutCreatingASession() throws Exception {
         CsrfData csrf = fetchCsrf(null);
         signup(csrf, PASSWORD);
-        MockHttpSession session = new MockHttpSession();
+        String limitedSource = "198.51.100.70";
 
-        for (int attempt = 0; attempt < 8; attempt++) {
-            mockMvc.perform(csrfPost("/api/auth/login", csrf).session(session)
+        for (int attempt = 0; attempt < 2; attempt++) {
+            MvcResult failed = mockMvc.perform(csrfPost("/api/auth/login", csrf)
+                            .with(mock -> { mock.setRemoteAddr(limitedSource); return mock; })
                             .content(objectMapper.writeValueAsBytes(
                                     new AuthRequest.Login(EMAIL, "incorrect-password"))))
                     .andExpect(status().isUnauthorized())
-                    .andExpect(jsonPath("$.message").isNotEmpty());
+                    .andExpect(jsonPath("$.message").isNotEmpty())
+                    .andReturn();
+            assertNull(failed.getRequest().getSession(false));
         }
-        mockMvc.perform(get("/api/auth/me").session(session))
-                .andExpect(status().isUnauthorized());
 
-        mockMvc.perform(csrfPost("/api/auth/login", csrf).session(session)
+        MvcResult thresholdFailure = mockMvc.perform(csrfPost("/api/auth/login", csrf)
+                        .with(mock -> { mock.setRemoteAddr(limitedSource); return mock; })
+                        .content(objectMapper.writeValueAsBytes(
+                                new AuthRequest.Login(EMAIL, "incorrect-password"))))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string(HttpHeaders.RETRY_AFTER, matchesPattern("[1-9][0-9]*")))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsString("no-store")))
+                .andExpect(jsonPath("$.message").isNotEmpty())
+                .andReturn();
+        assertNull(thresholdFailure.getRequest().getSession(false));
+
+        MvcResult blockedCorrectPassword = mockMvc.perform(csrfPost("/api/auth/login", csrf)
+                        .with(mock -> { mock.setRemoteAddr(limitedSource); return mock; })
                         .content(objectMapper.writeValueAsBytes(new AuthRequest.Login(EMAIL, PASSWORD))))
-                .andExpect(status().isOk());
-        mockMvc.perform(get("/api/auth/me").session(session))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string(HttpHeaders.RETRY_AFTER, matchesPattern("[1-9][0-9]*")))
+                .andReturn();
+        assertNull(blockedCorrectPassword.getRequest().getSession(false));
+
+        mockMvc.perform(csrfPost("/api/auth/login", csrf)
+                        .with(mock -> { mock.setRemoteAddr("198.51.100.71"); return mock; })
+                        .content(objectMapper.writeValueAsBytes(new AuthRequest.Login(EMAIL, PASSWORD))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.email").value(EMAIL));
+    }
+
+    @Test
+    void sourceWideLimitCountsPasswordSprayAndIgnoresForwardedFor() throws Exception {
+        CsrfData csrf = fetchCsrf(null);
+        String remoteAddress = "198.51.100.80";
+
+        for (int attempt = 0; attempt < 4; attempt++) {
+            mockMvc.perform(csrfPost("/api/auth/login", csrf)
+                            .with(mock -> { mock.setRemoteAddr(remoteAddress); return mock; })
+                            .header("X-Forwarded-For", "203.0.113." + attempt)
+                            .content(objectMapper.writeValueAsBytes(new AuthRequest.Login(
+                                    "missing-" + attempt + "@example.com", PASSWORD))))
+                    .andExpect(status().isUnauthorized());
+        }
+
+        mockMvc.perform(csrfPost("/api/auth/login", csrf)
+                        .with(mock -> { mock.setRemoteAddr(remoteAddress); return mock; })
+                        .header("X-Forwarded-For", "203.0.113.250")
+                        .content(objectMapper.writeValueAsBytes(
+                                new AuthRequest.Login("missing-final@example.com", PASSWORD))))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string(HttpHeaders.RETRY_AFTER, matchesPattern("[1-9][0-9]*")))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsString("no-store")));
+    }
+
+    @Test
+    void loginReturnsServiceUnavailableWhenProtectedSourceTrackingIsAtCapacity() throws Exception {
+        CsrfData csrf = fetchCsrf(null);
+        for (int index = 0; index < 100; index++) {
+            LoginAttemptLimiter.BeginDecision begin = loginAttemptLimiter.beginAttempt(
+                    "198.51.100." + index, "capacity-" + index + "@example.com");
+            assertTrue(begin.permitted());
+        }
+
+        MvcResult unavailable = mockMvc.perform(csrfPost("/api/auth/login", csrf)
+                        .with(mock -> { mock.setRemoteAddr("203.0.113.200"); return mock; })
+                        .content(objectMapper.writeValueAsBytes(
+                                new AuthRequest.Login("new-account@example.com", PASSWORD))))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(header().string(HttpHeaders.RETRY_AFTER, matchesPattern("[1-9][0-9]*")))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsString("no-store")))
+                .andExpect(jsonPath("$.message").value(
+                        "로그인을 일시적으로 처리할 수 없습니다. 잠시 후 다시 시도해 주세요."))
+                .andReturn();
+        assertNull(unavailable.getRequest().getSession(false));
     }
 
     @Test
@@ -269,6 +385,43 @@ class AuthControllerTest {
         User original = userRepository.findByEmail(EMAIL).orElseThrow();
         assertEquals("tester", original.getNickname());
         assertTrue(passwordEncoder.matches(PASSWORD, original.getPassword()));
+    }
+
+    @Test
+    void signupAndLoginRejectUnsupportedEmailIdentities() throws Exception {
+        CsrfData csrf = fetchCsrf(null);
+        List<String> unsupportedEmails = List.of(
+                "t\u00e9st@example.com",
+                "user@fa\u00df.de",
+                "\u039f\u03a3@example.com",
+                "\uff34\uff25\uff33\uff34@example.com",
+                "\u3000user@example.com\u3000",
+                "\ufdfa@a.co",
+                "a".repeat(101) + "@a.co"
+        );
+
+        for (String email : unsupportedEmails) {
+            mockMvc.perform(csrfPost("/api/auth/signup", csrf)
+                            .content(objectMapper.writeValueAsBytes(Map.of(
+                                    "email", email,
+                                    "nickname", "tester",
+                                    "password", PASSWORD))))
+                    .andExpect(status().isBadRequest());
+            mockMvc.perform(csrfPost("/api/auth/login", csrf)
+                            .content(objectMapper.writeValueAsBytes(Map.of(
+                                    "email", email,
+                                    "password", PASSWORD))))
+                    .andExpect(status().isBadRequest());
+        }
+        assertEquals(0, userRepository.count());
+    }
+
+    @Test
+    void oversizedEmailIsLeftUntouchedForBoundedBeanValidation() {
+        String oversized = "\ufdfa".repeat(101) + "@a.co";
+
+        assertEquals(oversized, new AuthRequest.Login(oversized, PASSWORD).email());
+        assertEquals(oversized, new AuthRequest.Signup(oversized, "tester", PASSWORD).email());
     }
 
     @Test
@@ -422,8 +575,18 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.paths['/api/auth/login']").exists())
                 .andExpect(jsonPath("$.paths['/api/auth/signup'].post.responses['201']").exists())
                 .andExpect(jsonPath("$.paths['/api/auth/csrf'].get.parameters").doesNotExist())
+                .andExpect(jsonPath("$.paths['/api/auth/csrf'].get.responses['200']").exists())
+                .andExpect(jsonPath("$.paths['/api/auth/csrf'].get.responses['200'].content['application/json'].schema").exists())
                 .andExpect(jsonPath("$.paths['/api/auth/csrf'].get.responses['429']").exists())
                 .andExpect(jsonPath("$.paths['/api/auth/csrf'].get.responses['503']").exists())
+                .andExpect(jsonPath("$.paths['/api/auth/login'].post.responses['200']").exists())
+                .andExpect(jsonPath("$.paths['/api/auth/login'].post.responses['200'].content['application/json'].schema['$ref']")
+                        .value("#/components/schemas/AuthResponse"))
+                .andExpect(jsonPath("$.paths['/api/auth/login'].post.responses['401']").exists())
+                .andExpect(jsonPath("$.paths['/api/auth/login'].post.responses['429']").exists())
+                .andExpect(jsonPath("$.paths['/api/auth/login'].post.responses['429'].headers['Retry-After']").exists())
+                .andExpect(jsonPath("$.paths['/api/auth/login'].post.responses['503']").exists())
+                .andExpect(jsonPath("$.paths['/api/auth/login'].post.responses['503'].headers['Retry-After']").exists())
                 .andExpect(jsonPath("$.paths['/api/auth/logout'].post.responses['204']").exists());
         mockMvc.perform(get("/v3/api-docs/swagger-config"))
                 .andExpect(status().isOk())

@@ -46,6 +46,43 @@ Google 로그인을 사용하려면 실행 전에 [.env.example](.env.example)�
 
 Google에 등록한 승인된 리디렉션 URI는 위 주소와 정확히 일치해야 합니다.
 
+### 로그인 실패 제한 설정 (선택)
+
+로그인 실패 제한은 출발지·계정 조합, 계정 전체, 출발지 전체를 각각 추적하며 다음 환경 변수로 조정합니다.
+
+| 변수 | 기본값 | 용도 |
+| --- | --- | --- |
+| `LOGIN_RATE_LIMIT_SOURCE_ACCOUNT_THRESHOLD` | `5` | 출발지·계정 조합의 실패 임계값 |
+| `LOGIN_RATE_LIMIT_ACCOUNT_THRESHOLD` | `10` | 여러 출발지에서 누적한 계정 전체의 실패 임계값 |
+| `LOGIN_RATE_LIMIT_SOURCE_THRESHOLD` | `20` | 출발지 전체의 실패 임계값 |
+| `LOGIN_RATE_LIMIT_INITIAL_BACKOFF` | `30s` | 최초 임계값 도달 후 대기 시간 |
+| `LOGIN_RATE_LIMIT_MAX_BACKOFF` | `1h` | 지수 백오프 최대 대기 시간 |
+| `LOGIN_RATE_LIMIT_RECORD_TTL` | `1h` | 계정 관련 실패 기록 유지 시간 |
+| `LOGIN_RATE_LIMIT_SOURCE_RECORD_TTL` | `1m` | 출발지 전체 실패 기록 유지 시간 |
+| `LOGIN_RATE_LIMIT_MAX_SOURCE_ACCOUNTS` | `16384` | 출발지·계정 조합 기록 상한 |
+| `LOGIN_RATE_LIMIT_MAX_ACCOUNTS` | `32768` | 우선 보관하는 정확한 계정 기록 상한 |
+| `LOGIN_RATE_LIMIT_MAX_SOURCES` | `4096` | 출발지 기록 상한 |
+
+출발지·계정 임계값을 계정 전체 임계값보다 낮게 두어 한 출발지의 반복 공격을 먼저 제한하고, 여러 출발지를 이용한 공격은 계정 전체에서 누적합니다. 이 숫자는 보안 표준이 의무화한 값이 아니라 프로젝트의 초기값입니다. 운영 환경의 로그인 실패 지표, 정상 트래픽과 인스턴스 메모리 용량을 확인해 조정합니다.
+
+출발지는 애플리케이션 서버가 확인한 직접 연결 주소를 사용합니다. 리버스 프록시 뒤에 배포할 때는 프록시가 외부의 전달 헤더를 제거하고 새 값을 설정하도록 한 뒤, 신뢰하는 프록시에서 온 주소만 해석하도록 서버를 구성합니다. 임의의 `X-Forwarded-For` 헤더를 직접 신뢰하면 안 되며, 여러 사용자가 주소를 공유하는 NAT 환경에서는 출발지 임계값을 트래픽에 맞게 조정합니다.
+
+계정 전체 범위는 설정한 상한까지 이메일별 정확한 기록을 교체하지 않고 보존합니다. 상한에 도달한 뒤 처음 확인하는 이메일은 프로세스마다 무작위로 생성한 비밀값을 이용해 1,024개의 공유 버킷 중 하나에 배치합니다. 따라서 임의 이메일을 계속 바꿔도 계정 기록은 `LOGIN_RATE_LIMIT_MAX_ACCOUNTS + 1024`개를 넘지 않으며, 계정 기록 포화만으로 전체 로그인을 `503` 상태로 만들지 않습니다. 공유 버킷은 서로 다른 이메일의 실패가 보수적으로 합쳐질 수 있고, 다른 이메일의 로그인 성공으로 실패 기록을 지우지 않습니다. 모든 공유 버킷 기록이 만료되고 정확한 기록 공간이 생기면 이메일별 기록 배치를 다시 시작합니다.
+
+출발지·계정 조합과 출발지 전체에서는 제한 중이거나 처리 중인 기록과 이미 임계값에 도달한 기록을 보존하고, 임계값 미도달 유휴 기록 중 실패 횟수가 적고 오래된 기록부터 교체합니다. 안전하게 교체할 기록이 없을 때만 새 로그인 키에 `503`을 반환합니다. `security.login.rate.limit.tracked.records`, `security.login.rate.limit.account.records`, `security.login.rate.limit.account.overflow.active`, `security.login.rate.limit.decisions` 지표로 용량 거부와 공유 버킷 전환을 감시합니다. 제한 기록은 애플리케이션 인스턴스별 메모리에 저장되어 재시작하면 초기화되므로, 여러 인스턴스를 운영할 때는 Redis와 같은 원자적 공유 저장소와 엣지 계층의 요청 제한을 함께 사용합니다.
+
+메모리 상한을 유지하기 위해 출발지 관련 임계값 미도달 기록을 교체하므로, 상한을 채울 정도의 대규모 분산 공격에서는 해당 두 범위의 실패 누적이 초기화될 수 있습니다. 공격자가 정확한 계정 기록 공간을 먼저 채우면 새 계정이 공유 버킷을 사용하는 저하 상태를 지속시킬 수도 있습니다. 계정 전체 제한은 계속 동작하지만 버킷 충돌에 따른 정상 요청 제한 가능성이 커지므로, 운영 환경에서는 공유 저장소와 엣지 제한으로 용량 압박 자체를 줄여야 합니다.
+
+공격자가 여러 출발지를 이용해 계정 임계값에 도달한 뒤 백오프 종료 시점마다 실패를 반복하면 특정 계정의 로그인을 계속 지연할 수 있습니다. 실제 운영에서는 위험 기반 판정, CAPTCHA, MFA와 계정 복구 절차를 함께 적용해 이러한 계정 잠금형 서비스 거부 위험을 줄입니다.
+
+설계 원칙은 [NIST SP 800-63B-4의 인증 시도 제한](https://pages.nist.gov/800-63-4/sp800-63b.html#rate-limiting-throttling), [OWASP Authentication Cheat Sheet의 로그인 제한](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html#login-throttling), [OWASP Bot Management Cheat Sheet의 계정·출발지별 제한](https://cheatsheetseries.owasp.org/cheatsheets/Bot_Management_and_Anti-Automation_Cheat_Sheet.html#rate-limiting-and-quotas)을 참고합니다.
+
+### 이메일 식별자와 기존 데이터 이전
+
+회원가입과 일반 로그인은 ASCII 이메일 주소만 허용합니다. 입력 앞뒤의 ASCII 공백을 제거하고 대문자를 소문자로 통일하며, 국제화 도메인은 애플리케이션에서 임의 변환하지 않으므로 사전에 Punycode A-label 형식으로 입력해야 합니다. Google 신규 계정에도 같은 규칙을 적용합니다.
+
+V4 데이터베이스 마이그레이션은 기존 이메일을 같은 규칙으로 점검한 뒤 별도 임시 열에 변환하고 마지막 단계에서 원본 열과 교체합니다. 비ASCII 주소, 길이 초과 주소 또는 변환 후 중복 주소가 있으면 사용자 ID만 포함한 오류로 중단하므로 배포 전에 해당 행을 수동으로 정리해야 합니다. 이전 과정에서 기존 인스턴스가 이메일을 쓰면 변경 유실이나 마이그레이션 실패가 발생할 수 있으므로, 모든 애플리케이션 인스턴스와 기타 쓰기 작업을 중지한 상태에서 배포합니다.
+
 ### 실행과 접속
 
 프로젝트 루트에서 실행합니다.

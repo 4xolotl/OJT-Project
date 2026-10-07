@@ -5,6 +5,7 @@ import java.util.Map;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ojt.board.auth.CsrfTokenRateLimitProperties;
+import com.ojt.board.auth.LoginRateLimitProperties;
 import com.ojt.board.auth.oauth.GoogleOAuthConfigurer;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -36,12 +37,13 @@ import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWrite
 import jakarta.servlet.DispatcherType;
 
 import com.ojt.board.user.UserRepository;
+import com.ojt.board.user.EmailCanonicalizer;
 
 import lombok.RequiredArgsConstructor;
 
 @Configuration
 @RequiredArgsConstructor
-@EnableConfigurationProperties(CsrfTokenRateLimitProperties.class)
+@EnableConfigurationProperties({CsrfTokenRateLimitProperties.class, LoginRateLimitProperties.class})
 public class SecurityConfig {
 
     private final UserRepository userRepository;
@@ -106,7 +108,7 @@ public class SecurityConfig {
 
     @Bean
     public UserDetailsService userDetailsService() {
-        return email -> userRepository.findByEmailAndPasswordIsNotNull(email)
+        return email -> userRepository.findByEmailAndPasswordIsNotNull(EmailCanonicalizer.canonicalize(email))
                 .orElseThrow(() -> new UsernameNotFoundException("사용자를 찾을 수 없습니다."));
     }
 
