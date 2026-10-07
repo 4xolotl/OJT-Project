@@ -5,13 +5,19 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.ojt.board.authorization.ObjectAuthorizationDeniedException;
+import com.ojt.board.authorization.ObjectAuthorizationGuard;
+import com.ojt.board.authorization.ObjectAuthorizationOperation;
 import com.ojt.board.post.Post;
 import com.ojt.board.post.PostRepository;
+import com.ojt.board.user.User;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -29,10 +35,16 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 class AttachmentServiceTest {
 
+    private static final long POST_ID = 1L;
+    private static final long FILE_ID = 5L;
+    private static final long OWNER_ID = 7L;
+    private static final long OTHER_ID = 8L;
+
     @TempDir
     Path temporaryDirectory;
 
     private AttachmentRepository attachmentRepository;
+    private PostRepository postRepository;
     private LocalFileStorage storage;
     private AttachmentService service;
     private Post post;
@@ -40,12 +52,17 @@ class AttachmentServiceTest {
     @BeforeEach
     void setUp() {
         attachmentRepository = mock(AttachmentRepository.class);
-        PostRepository postRepository = mock(PostRepository.class);
+        postRepository = mock(PostRepository.class);
         storage = new LocalFileStorage(temporaryDirectory.toString());
-        service = new AttachmentService(attachmentRepository, postRepository, storage);
+        service = new AttachmentService(attachmentRepository, postRepository, storage,
+                new ObjectAuthorizationGuard());
         post = mock(Post.class);
-        when(post.getId()).thenReturn(1L);
-        when(postRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(post));
+        User author = mock(User.class);
+        when(author.getId()).thenReturn(OWNER_ID);
+        when(post.getId()).thenReturn(POST_ID);
+        when(post.getAuthor()).thenReturn(author);
+        when(postRepository.findAuthorIdById(POST_ID)).thenReturn(Optional.of(OWNER_ID));
+        when(postRepository.findByIdForUpdate(POST_ID)).thenReturn(Optional.of(post));
         TransactionSynchronizationManager.initSynchronization();
     }
 
@@ -66,7 +83,7 @@ class AttachmentServiceTest {
     @Test
     void storesFilesForTheRequestedPost() throws Exception {
         when(attachmentRepository.saveAllAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
-        List<AttachmentResponse> response = service.upload(1L, 8L, List.of(validFile()));
+        List<AttachmentResponse> response = service.upload(POST_ID, OWNER_ID, List.of(validFile()));
         assertEquals(1, response.size());
         assertEquals("text/plain", response.getFirst().contentType());
         assertEquals(1, storedFileCount());
@@ -89,9 +106,9 @@ class AttachmentServiceTest {
     @Test
     void downloadUsesTheMimeTypeVerifiedAtUpload() throws Exception {
         Attachment attachment = storedAttachment();
-        when(attachmentRepository.findById(5L)).thenReturn(Optional.of(attachment));
+        when(attachmentRepository.findById(FILE_ID)).thenReturn(Optional.of(attachment));
 
-        AttachmentService.Download download = service.download(5L);
+        AttachmentService.Download download = service.download(FILE_ID);
 
         assertEquals("text/plain", download.contentType());
         assertEquals(attachment.getSize(), download.size());
@@ -123,10 +140,11 @@ class AttachmentServiceTest {
     @Test
     void removesPhysicalFileOnlyAfterMetadataDeletionCommits() throws Exception {
         Attachment attachment = storedAttachment();
-        when(attachmentRepository.findPostIdById(5L)).thenReturn(Optional.of(1L));
-        when(attachmentRepository.findById(5L)).thenReturn(Optional.of(attachment));
+        when(attachmentRepository.findPostIdById(FILE_ID)).thenReturn(Optional.of(POST_ID));
+        when(attachmentRepository.findByIdAndPostIdForUpdate(FILE_ID, POST_ID))
+                .thenReturn(Optional.of(attachment));
 
-        service.delete(5L, 7L);
+        service.delete(FILE_ID, OWNER_ID);
         verify(attachmentRepository).delete(attachment);
         assertTrue(Files.exists(temporaryDirectory.resolve(attachment.getStoredFilename())));
 
@@ -137,7 +155,7 @@ class AttachmentServiceTest {
     @Test
     void keepsAllPhysicalFilesIfPostDeletionRollsBack() throws Exception {
         Attachment attachment = storedAttachment();
-        when(attachmentRepository.findByPostIdOrderByIdAsc(1L)).thenReturn(List.of(attachment));
+        when(attachmentRepository.findByPostIdOrderByIdAscForUpdate(POST_ID)).thenReturn(List.of(attachment));
         service.deleteAllForPost(post);
 
         completeTransaction(TransactionSynchronization.STATUS_ROLLED_BACK);
@@ -149,12 +167,39 @@ class AttachmentServiceTest {
     void removesAllPhysicalFilesWhenPostDeletionCommits() throws Exception {
         Attachment first = storedAttachment();
         Attachment second = storedAttachment();
-        when(attachmentRepository.findByPostIdOrderByIdAsc(1L)).thenReturn(List.of(first, second));
+        when(attachmentRepository.findByPostIdOrderByIdAscForUpdate(POST_ID)).thenReturn(List.of(first, second));
         service.deleteAllForPost(post);
         assertEquals(2, storedFileCount());
 
         completeTransaction(TransactionSynchronization.STATUS_COMMITTED);
         assertEquals(0, storedFileCount());
+    }
+
+    @Test
+    void nonOwnerCannotUploadBeforePostLock() throws Exception {
+        ObjectAuthorizationDeniedException exception = assertThrows(ObjectAuthorizationDeniedException.class,
+                () -> service.upload(POST_ID, OTHER_ID, List.of(validFile())));
+
+        assertDenied(exception, POST_ID, ObjectAuthorizationOperation.ATTACHMENT_UPLOAD);
+        verify(postRepository).findAuthorIdById(POST_ID);
+        verify(postRepository, never()).findByIdForUpdate(anyLong());
+        verifyNoInteractions(attachmentRepository);
+        assertEquals(0, storedFileCount());
+    }
+
+    @Test
+    void nonOwnerCannotDeleteBeforePostLock() {
+        when(attachmentRepository.findPostIdById(FILE_ID)).thenReturn(Optional.of(POST_ID));
+
+        ObjectAuthorizationDeniedException exception = assertThrows(ObjectAuthorizationDeniedException.class,
+                () -> service.delete(FILE_ID, OTHER_ID));
+
+        assertDenied(exception, FILE_ID, ObjectAuthorizationOperation.ATTACHMENT_DELETE);
+        verify(attachmentRepository).findPostIdById(FILE_ID);
+        verify(postRepository).findAuthorIdById(POST_ID);
+        verify(postRepository, never()).findByIdForUpdate(anyLong());
+        verify(attachmentRepository, never()).findByIdAndPostIdForUpdate(anyLong(), anyLong());
+        verify(attachmentRepository, never()).delete(any(Attachment.class));
     }
 
     private Attachment storedAttachment() {
@@ -166,6 +211,14 @@ class AttachmentServiceTest {
     private MockMultipartFile validFile() {
         return new MockMultipartFile("files", "report.txt", "text/plain",
                 "report body".getBytes(StandardCharsets.UTF_8));
+    }
+
+    private void assertDenied(ObjectAuthorizationDeniedException exception, long resourceId,
+                              ObjectAuthorizationOperation operation) {
+        assertEquals("게시글 작성자만 수정하거나 삭제할 수 있습니다.", exception.getMessage());
+        assertEquals(OTHER_ID, exception.actorId());
+        assertEquals(resourceId, exception.resourceId());
+        assertEquals(operation, exception.operation());
     }
 
     private long storedFileCount() throws IOException {

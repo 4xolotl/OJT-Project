@@ -21,6 +21,9 @@ public interface PostRepository extends JpaRepository<Post, Long>, PostSearchRep
     @EntityGraph(attributePaths = "author")
     Optional<Post> findById(Long id);
 
+    @Query("select p.author.id from Post p where p.id = :id")
+    Optional<Long> findAuthorIdById(@Param("id") Long id);
+
     // Every child mutation takes this same lock before touching a post's contents.
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from Post p where p.id = :id")

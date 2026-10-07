@@ -1,7 +1,12 @@
 package com.ojt.board.global;
 
+import java.util.EnumMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
+import com.ojt.board.authorization.AuthorizationDenialAudit;
+import com.ojt.board.authorization.ObjectAuthorizationDeniedException;
+import com.ojt.board.authorization.ObjectAuthorizationOperation;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.http.HttpStatus;
@@ -20,11 +25,17 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import com.ojt.board.file.FileStorageException;
 import jakarta.validation.ConstraintViolationException;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 @RestControllerAdvice
+@RequiredArgsConstructor
 @Slf4j
 public class ApiExceptionHandler {
+
+    private final AuthorizationDenialAudit authorizationDenialAudit;
+    private final Map<ObjectAuthorizationOperation, AtomicBoolean> authorizationAuditFailures =
+            createAuthorizationAuditFailureStates();
 
     @ExceptionHandler(EditConflictException.class)
     public ResponseEntity<Map<String, String>> handleEditConflict(EditConflictException exception) {
@@ -34,6 +45,32 @@ public class ApiExceptionHandler {
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<Map<String, String>> handleNotFound(ResourceNotFoundException exception) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("message", exception.getMessage()));
+    }
+
+    @ExceptionHandler(ObjectAuthorizationDeniedException.class)
+    public ResponseEntity<Map<String, String>> handleObjectAuthorizationDenied(
+            ObjectAuthorizationDeniedException exception) {
+        AtomicBoolean failureReported = authorizationAuditFailures.get(exception.operation());
+        try {
+            authorizationDenialAudit.record(exception);
+            failureReported.set(false);
+        } catch (RuntimeException auditFailure) {
+            // Audit infrastructure failure must not change the authorization decision or amplify logs.
+            if (failureReported.compareAndSet(false, true)) {
+                log.error("객체 권한 거부 감사 기록에 실패했습니다. action={}, resource_type={}",
+                        exception.operation().action(), exception.operation().resourceType(), auditFailure);
+            }
+        }
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("message", exception.getMessage()));
+    }
+
+    private static Map<ObjectAuthorizationOperation, AtomicBoolean> createAuthorizationAuditFailureStates() {
+        EnumMap<ObjectAuthorizationOperation, AtomicBoolean> states =
+                new EnumMap<>(ObjectAuthorizationOperation.class);
+        for (ObjectAuthorizationOperation operation : ObjectAuthorizationOperation.values()) {
+            states.put(operation, new AtomicBoolean());
+        }
+        return Map.copyOf(states);
     }
 
     @ExceptionHandler(AccessDeniedException.class)
