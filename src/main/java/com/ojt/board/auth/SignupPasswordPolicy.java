@@ -9,6 +9,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.function.Predicate;
 
 import org.springframework.stereotype.Component;
 
@@ -22,6 +23,8 @@ public final class SignupPasswordPolicy {
     public static final int MIN_LENGTH = 15;
     public static final int MAX_LENGTH = 72;
     private static final int MIN_WEAK_SEQUENCE_LENGTH = 6;
+    private static final int MIN_DOMINANT_SPACE_PADDING = 8;
+    private static final int MAX_REPEATED_SEPARATOR_LENGTH = 8;
 
     static final String FORMAT_MESSAGE =
             "비밀번호는 15~72자의 출력 가능한 ASCII 문자와 공백으로 입력해 주세요.";
@@ -129,16 +132,59 @@ public final class SignupPasswordPolicy {
     }
 
     private static boolean isBlockedOrPredictableVariant(String value, Set<String> blockedValues) {
-        if (blockedValues.contains(value)) {
+        return hasPredictablyDecoratedMatch(value, candidate ->
+                blockedValues.contains(candidate)
+                        || hasSingleInsertionVariant(candidate, blockedValues)
+                        || hasBlockedRepeatedSides(candidate, blockedValues));
+    }
+
+    private static boolean hasPredictablyDecoratedMatch(String value, Predicate<String> matcher) {
+        if (matcher.test(value)) {
             return true;
         }
-        int maximumAffixLength = Math.min(8, value.length() - 1);
-        for (int length = 1; length <= maximumAffixLength; length++) {
-            String prefix = value.substring(0, length);
-            String suffix = value.substring(value.length() - length);
-            if ((isPredictableAffix(prefix) && blockedValues.contains(value.substring(length)))
-                    || (isPredictableAffix(suffix)
-                    && blockedValues.contains(value.substring(0, value.length() - length)))) {
+        for (int start = 0; start < value.length(); start++) {
+            if (start > 0 && !isPredictableDecoration(value.substring(0, start))) {
+                continue;
+            }
+            for (int end = value.length(); end > start; end--) {
+                if (start == 0 && end == value.length()) {
+                    continue;
+                }
+                if (end < value.length() && !isPredictableDecoration(value.substring(end))) {
+                    continue;
+                }
+                if (matcher.test(value.substring(start, end))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean isPredictableDecoration(String value) {
+        return value.length() == 1 || isPredictableAffix(value);
+    }
+
+    private static boolean hasSingleInsertionVariant(String value, Set<String> blockedValues) {
+        for (int index = 0; index < value.length(); index++) {
+            String withoutCharacter = value.substring(0, index) + value.substring(index + 1);
+            if (blockedValues.contains(withoutCharacter)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasBlockedRepeatedSides(String value, Set<String> blockedValues) {
+        int maximumSeparatorLength = Math.min(MAX_REPEATED_SEPARATOR_LENGTH, value.length() - 2);
+        for (int separatorLength = 1; separatorLength <= maximumSeparatorLength; separatorLength++) {
+            int candidateCharacters = value.length() - separatorLength;
+            if (candidateCharacters % 2 != 0) {
+                continue;
+            }
+            int candidateLength = candidateCharacters / 2;
+            if (blockedValues.contains(value.substring(0, candidateLength))
+                    && value.regionMatches(0, value, candidateLength + separatorLength, candidateLength)) {
                 return true;
             }
         }
@@ -191,15 +237,31 @@ public final class SignupPasswordPolicy {
 
     private boolean isObviousPattern(String password) {
         String pattern = keyboardCanonical(password);
-        if (pattern.isEmpty() || hasDominantRepeatedCharacter(pattern)) {
+        if (pattern.isEmpty()
+                || hasDominantSpacePadding(password)
+                || hasDominantRepeatedCharacter(password)
+                || hasDominantRepeatedCharacter(pattern)) {
             return true;
         }
 
-        if (hasRejectedRepeatedUnit(pattern) || hasRejectedRepeatedUnit(comparable(password))) {
-            return true;
-        }
         String rawWithoutSpaces = password.toLowerCase(Locale.ROOT).replace(" ", "");
-        return isWeakWalk(pattern) || isWeakWalk(rawWithoutSpaces);
+        return hasPredictablyDecoratedMatch(pattern, this::isWeakPattern)
+                || hasPredictablyDecoratedMatch(rawWithoutSpaces, this::isWeakPattern)
+                || hasPredictablyDecoratedMatch(comparable(password), this::hasRejectedRepeatedUnit);
+    }
+
+    private boolean isWeakPattern(String value) {
+        return hasRejectedRepeatedUnit(value) || isWeakWalk(value);
+    }
+
+    private static boolean hasDominantSpacePadding(String value) {
+        int spaces = 0;
+        for (int index = 0; index < value.length(); index++) {
+            if (value.charAt(index) == ' ') {
+                spaces++;
+            }
+        }
+        return spaces >= MIN_DOMINANT_SPACE_PADDING && spaces * 2 >= value.length();
     }
 
     private boolean hasRejectedRepeatedUnit(String value) {
@@ -223,11 +285,8 @@ public final class SignupPasswordPolicy {
     }
 
     private static String repeatedUnit(String value) {
-        int maximumUnitLength = Math.min(24, value.length() / 2);
+        int maximumUnitLength = value.length() / 2;
         for (int size = 1; size <= maximumUnitLength; size++) {
-            if (value.length() % size != 0) {
-                continue;
-            }
             boolean matches = true;
             for (int index = size; index < value.length(); index++) {
                 if (value.charAt(index) != value.charAt(index % size)) {

@@ -1,6 +1,8 @@
 export const SIGNUP_PASSWORD_MIN_LENGTH = 15;
 const MAX_LENGTH = 72;
 const MIN_WEAK_SEQUENCE_LENGTH = 6;
+const MIN_DOMINANT_SPACE_PADDING = 8;
+const MAX_REPEATED_SEPARATOR_LENGTH = 8;
 // This compact set gives immediate feedback for representative weak values.
 // The server remains authoritative and checks the full offline blocklist.
 const COMMON_PASSWORDS = new Set([
@@ -53,6 +55,16 @@ export function signupPasswordError(value, email = '') {
   return '';
 }
 
+function passwordTransferError(value) {
+  if (/[^\x20-\x7e]/.test(value)) {
+    return '비밀번호는 출력 가능한 영문, 숫자, 특수문자와 공백만 사용할 수 있어요.';
+  }
+  if (value.length > MAX_LENGTH) {
+    return `비밀번호는 ${MAX_LENGTH}자까지 입력할 수 있어요.`;
+  }
+  return '';
+}
+
 function isContextSpecific(value, email) {
   if (typeof email !== 'string' || !email.includes('@')) return false;
   const normalizedPassword = comparable(value);
@@ -75,18 +87,67 @@ function isObviouslyGuessable(value) {
   if (isBlockedOrPredictableVariant(normalized, COMMON_PASSWORDS)
       || isBlockedOrPredictableVariant(undecorated, COMMON_PASSWORDS)) return true;
   const pattern = keyboardCanonical(value);
-  if (hasDominantRepeatedCharacter(pattern) || hasRepeatedUnit(pattern) || hasRepeatedUnit(normalized)) return true;
-  return isWeakWalk(pattern) || isWeakWalk(value.toLowerCase().replaceAll(' ', ''));
+  if (hasDominantSpacePadding(value)
+      || hasDominantRepeatedCharacter(value)
+      || hasDominantRepeatedCharacter(pattern)) return true;
+  const rawWithoutSpaces = value.toLowerCase().replaceAll(' ', '');
+  return hasPredictablyDecoratedMatch(pattern, isWeakPattern)
+    || hasPredictablyDecoratedMatch(rawWithoutSpaces, isWeakPattern)
+    || hasPredictablyDecoratedMatch(normalized, hasRepeatedUnit);
+}
+
+function isWeakPattern(value) {
+  return hasRepeatedUnit(value) || isWeakWalk(value);
+}
+
+function hasDominantSpacePadding(value) {
+  let spaces = 0;
+  for (const character of value) {
+    if (character === ' ') spaces++;
+  }
+  return spaces >= MIN_DOMINANT_SPACE_PADDING && spaces * 2 >= value.length;
 }
 
 function isBlockedOrPredictableVariant(value, blockedValues) {
-  if (blockedValues.has(value)) return true;
-  const maximum = Math.min(8, value.length - 1);
-  for (let length = 1; length <= maximum; length++) {
-    const prefix = value.slice(0, length);
-    const suffix = value.slice(-length);
-    if ((isPredictableAffix(prefix) && blockedValues.has(value.slice(length)))
-        || (isPredictableAffix(suffix) && blockedValues.has(value.slice(0, -length)))) return true;
+  return hasPredictablyDecoratedMatch(value, candidate =>
+    blockedValues.has(candidate)
+      || hasSingleInsertionVariant(candidate, blockedValues)
+      || hasBlockedRepeatedSides(candidate, blockedValues));
+}
+
+function hasPredictablyDecoratedMatch(value, matcher) {
+  if (matcher(value)) return true;
+  for (let start = 0; start < value.length; start++) {
+    if (start > 0 && !isPredictableDecoration(value.slice(0, start))) continue;
+    for (let end = value.length; end > start; end--) {
+      if (start === 0 && end === value.length) continue;
+      if (end < value.length && !isPredictableDecoration(value.slice(end))) continue;
+      if (matcher(value.slice(start, end))) return true;
+    }
+  }
+  return false;
+}
+
+function isPredictableDecoration(value) {
+  return value.length === 1 || isPredictableAffix(value);
+}
+
+function hasSingleInsertionVariant(value, blockedValues) {
+  for (let index = 0; index < value.length; index++) {
+    if (blockedValues.has(value.slice(0, index) + value.slice(index + 1))) return true;
+  }
+  return false;
+}
+
+function hasBlockedRepeatedSides(value, blockedValues) {
+  const maximumSeparatorLength = Math.min(MAX_REPEATED_SEPARATOR_LENGTH, value.length - 2);
+  for (let separatorLength = 1; separatorLength <= maximumSeparatorLength; separatorLength++) {
+    const candidateCharacters = value.length - separatorLength;
+    if (candidateCharacters % 2 !== 0) continue;
+    const candidateLength = candidateCharacters / 2;
+    const candidate = value.slice(0, candidateLength);
+    if (blockedValues.has(candidate)
+        && value.slice(candidateLength + separatorLength) === candidate) return true;
   }
   return false;
 }
@@ -144,10 +205,16 @@ function hasRepeatedUnit(value) {
 }
 
 function repeatedUnit(value) {
-  for (let size = 1; size <= Math.min(24, Math.floor(value.length / 2)); size++) {
-    if (value.length % size !== 0) continue;
+  for (let size = 1; size <= Math.floor(value.length / 2); size++) {
     const unit = value.slice(0, size);
-    if (unit.repeat(value.length / size) === value) return unit;
+    let matches = true;
+    for (let index = size; index < value.length; index++) {
+      if (value[index] !== unit[index % size]) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) return unit;
   }
   return null;
 }
@@ -169,7 +236,7 @@ export function guardPasswordTransfer(input, reportError) {
       const data = type === 'paste' ? event.clipboardData : event.dataTransfer;
       const text = data?.getData('text/plain');
       if (!text) return;
-      const message = passwordError(text);
+      const message = passwordTransferError(text);
       if (message) {
         event.preventDefault();
         reportError(message);

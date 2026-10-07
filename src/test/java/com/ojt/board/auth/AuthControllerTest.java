@@ -365,6 +365,14 @@ class AuthControllerTest {
     }
 
     @Test
+    void signupRejectsDominantSpacePaddingWithoutPersistingIt() throws Exception {
+        CsrfData csrf = fetchCsrf(null);
+
+        assertPasswordRejected("signup", csrf, "a" + " ".repeat(14));
+        assertEquals(0, userRepository.count());
+    }
+
+    @Test
     void loginRetainsOneCharacterMinimumForAnExistingAccount() throws Exception {
         userRepository.saveAndFlush(new User(EMAIL, "tester", passwordEncoder.encode("!")));
         CsrfData csrf = fetchCsrf(null);
