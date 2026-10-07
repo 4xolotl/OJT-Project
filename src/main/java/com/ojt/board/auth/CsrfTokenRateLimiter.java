@@ -77,7 +77,9 @@ public final class CsrfTokenRateLimiter {
         long effectiveNow = Math.max(now, bucket.updatedAtMillis());
         double availableTokens = refilledTokens(bucket, effectiveNow);
         if (availableTokens >= 1.0) {
-            putBucket(source, bucket, availableTokens - 1.0, effectiveNow, false);
+            // Keep the rejection latch until full refill so trickle traffic cannot amplify logs.
+            putBucket(source, bucket, availableTokens - 1.0, effectiveNow,
+                    bucket.rejectionReported());
             allowedCounter.increment();
             return Decision.allowed();
         }

@@ -20,7 +20,7 @@ class CsrfTokenRateLimiterTest {
     private static final String TRACKED_SOURCES_METRIC = "security.csrf.token.rate.limit.tracked.sources";
 
     @Test
-    void continuouslyRefillsTokensAndReportsWhenTheNextTokenIsAvailable() {
+    void suppressesRepeatedLogsUntilTheBucketFullyRefillsAndIsRecreated() {
         MutableClock clock = new MutableClock(Instant.parse("2026-10-06T00:00:00Z"));
         LimiterFixture fixture = limiter(2, 1, Duration.ofSeconds(30), 10, clock);
         CsrfTokenRateLimiter limiter = fixture.limiter();
@@ -43,8 +43,16 @@ class CsrfTokenRateLimiterTest {
         assertTrue(limiter.acquire("198.51.100.10").permitted());
         CsrfTokenRateLimiter.Decision blockedAfterRefill = limiter.acquire("198.51.100.10");
         assertFalse(blockedAfterRefill.permitted());
-        assertTrue(blockedAfterRefill.shouldLog());
+        assertFalse(blockedAfterRefill.shouldLog());
         assertFalse(limiter.acquire("198.51.100.10").shouldLog());
+
+        clock.advance(Duration.ofSeconds(60));
+        assertTrue(limiter.acquire("198.51.100.10").permitted());
+        assertTrue(limiter.acquire("198.51.100.10").permitted());
+        CsrfTokenRateLimiter.Decision blockedAfterFullRefill =
+                limiter.acquire("198.51.100.10");
+        assertFalse(blockedAfterFullRefill.permitted());
+        assertTrue(blockedAfterFullRefill.shouldLog());
     }
 
     @Test
