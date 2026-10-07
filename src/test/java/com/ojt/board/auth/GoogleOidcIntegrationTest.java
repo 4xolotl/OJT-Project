@@ -281,7 +281,7 @@ class GoogleOidcIntegrationTest {
         try (Browser browser = browser()) {
             String token = csrf(browser);
             assertEquals(201, browser.json("POST", "/api/auth/signup", token,
-                    Map.of("email", identity.email(), "nickname", "기존 사용자", "password", "password123")).statusCode());
+                    Map.of("email", identity.email(), "nickname", "기존 사용자", "password", "violet river 829")).statusCode());
             long existingId = users.findByEmail(identity.email()).orElseThrow().getId();
             String existingHash = users.findByEmail(identity.email()).orElseThrow().getPassword();
             Map<String, String> failure = assertFailure(complete(browser, authorize(browser, "/write.html"), identity, Defect.NONE));
@@ -290,7 +290,7 @@ class GoogleOidcIntegrationTest {
             assertEquals(existingId, users.findByEmail(identity.email()).orElseThrow().getId());
             assertEquals(existingHash, users.findByEmail(identity.email()).orElseThrow().getPassword());
             assertEquals(200, browser.json("POST", "/api/auth/login", csrf(browser),
-                    Map.of("email", identity.email(), "password", "password123")).statusCode());
+                    Map.of("email", identity.email(), "password", "violet river 829")).statusCode());
         }
     }
 

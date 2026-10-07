@@ -66,7 +66,7 @@ class AuthLoggingTest {
 
         // Generate the marker only after checking log levels; never print it in assertion messages.
         String marker = "private-" + UUID.randomUUID();
-        String invalidPassword = marker + " ";
+        String invalidPassword = marker + "\n";
         Object request = operation.equals("signup")
                 ? new AuthRequest.Signup("logging@example.com", "tester", invalidPassword)
                 : new AuthRequest.Login("logging@example.com", invalidPassword);

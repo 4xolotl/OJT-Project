@@ -174,8 +174,8 @@ await check('Empty and browser-invalid email are rejected before login', async (
   assert.equal(page.node('email-error').hidden, false);
 });
 
-await check('Empty, overlong, whitespace and non-ASCII login passwords are rejected', async () => {
-  for (const password of ['', '  \t ', 'a'.repeat(73), 'password가', 'password🧪', 'Valid123\n', ' Valid123', 'Valid123 ']) {
+await check('Empty, overlong, control-character and non-ASCII login passwords are rejected', async () => {
+  for (const password of ['', ' '.repeat(15), '  \t ', 'a'.repeat(73), 'password가', 'password🧪', 'Valid123\n']) {
     const page = await harness();
     page.fill('tester@example.com', password);
     await page.submit();
@@ -185,8 +185,8 @@ await check('Empty, overlong, whitespace and non-ASCII login passwords are rejec
   }
 });
 
-await check('Login accepts a single ASCII character, 72 characters and unmixed categories', async () => {
-  for (const password of ['x', 'a'.repeat(72), '12345678', '!!!!!!!!']) {
+await check('Login accepts spaces, a single ASCII character, 72 characters and unmixed categories', async () => {
+  for (const password of ['x', 'a'.repeat(72), '12345678', '!!!!!!!!', ' Valid123', 'Valid123 ', 'valid password']) {
     const page = await harness();
     page.fill('tester@example.com', password);
     await page.submit();
@@ -194,6 +194,9 @@ await check('Login accepts a single ASCII character, 72 characters and unmixed c
     assert.equal(page.requests[0].options.body.password, password);
     assert.equal(page.redirects[0], '/');
   }
+  const page = await harness();
+  assert.ok(page.node('password-hint').textContent.includes('공백'));
+  assert.ok(!page.node('password-hint').textContent.includes('제외'));
 });
 
 await check('The actual login password field guards raw transfers and has no truncating maxlength', async () => {

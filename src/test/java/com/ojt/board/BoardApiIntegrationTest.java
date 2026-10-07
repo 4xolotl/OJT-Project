@@ -58,7 +58,7 @@ import org.springframework.test.web.servlet.request.MockMultipartHttpServletRequ
 @ActiveProfiles("test")
 class BoardApiIntegrationTest {
 
-    private static final String PASSWORD = "password123";
+    private static final String PASSWORD = "violet river 829";
     private static final Path STORAGE = createStorageDirectory();
 
     @Autowired

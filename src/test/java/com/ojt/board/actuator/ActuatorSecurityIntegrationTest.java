@@ -261,7 +261,7 @@ class ActuatorSecurityIntegrationTest {
         try {
             mockMvc.perform(post("/api/auth/signup").with(csrf()).contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsBytes(Map.of("email", email, "nickname", "role-test",
-                                    "password", "password123", "role", "ADMIN", "authorities", List.of("ROLE_ADMIN")))))
+                                    "password", "violet river 829", "role", "ADMIN", "authorities", List.of("ROLE_ADMIN")))))
                     .andExpect(status().isCreated());
             assertEquals("USER", jdbcTemplate.queryForObject("SELECT role FROM users WHERE email = ?", String.class, email));
             MockHttpSession memberSession = passwordLogin(email);
@@ -306,7 +306,7 @@ class ActuatorSecurityIntegrationTest {
 
     private MockHttpSession passwordLogin(String email) throws Exception {
         MvcResult login = mockMvc.perform(post("/api/auth/login").with(csrf()).contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsBytes(Map.of("email", email, "password", "password123"))))
+                        .content(objectMapper.writeValueAsBytes(Map.of("email", email, "password", "violet river 829"))))
                 .andExpect(status().isOk()).andReturn();
         MockHttpSession session = (MockHttpSession) login.getRequest().getSession(false);
         assertNotNull(session);

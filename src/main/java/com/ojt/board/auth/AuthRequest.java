@@ -14,19 +14,23 @@ public final class AuthRequest {
     public record Signup(
             @NotBlank @Email @Size(max = 100) String email,
             @NotBlank @Size(min = 2, max = 100) String nickname,
-            @Schema(description = "4~72자. 공백 없이 영문 대소문자, 숫자, ASCII 특수문자만 허용합니다. 문자 종류별 필수 조합은 없습니다.",
-                    example = "password123")
-            @NotBlank @Size(min = 4, max = 72) @PasswordByteLength
-            @Pattern(regexp = "[\\x21-\\x7E]+", message = "비밀번호는 공백 없이 영문, 숫자, ASCII 특수문자만 사용할 수 있습니다.")
+            @Schema(description = "15~72자. 출력 가능한 ASCII 문자와 공백을 허용하며 문자 종류별 필수 조합은 없습니다. "
+                    + "널리 사용되거나 쉽게 추측할 수 있는 값은 거부합니다.",
+                    example = "violet river 829")
+            @NotBlank(message = "비밀번호를 입력해 주세요.")
+            @Size(min = SignupPasswordPolicy.MIN_LENGTH, max = SignupPasswordPolicy.MAX_LENGTH,
+                    message = "비밀번호는 15~72자로 입력해 주세요.")
+            @PasswordByteLength
+            @Pattern(regexp = "[\\x20-\\x7E]+", message = "비밀번호는 출력 가능한 ASCII 문자와 공백만 사용할 수 있습니다.")
             String password
     ) {
     }
 
     public record Login(
             @NotBlank @Email @Size(max = 100) String email,
-            @Schema(description = "1~72자. 공백 없이 영문 대소문자, 숫자, ASCII 특수문자만 허용합니다.", example = "password123")
-            @NotBlank @PasswordByteLength
-            @Pattern(regexp = "[\\x21-\\x7E]+", message = "비밀번호는 공백 없이 영문, 숫자, ASCII 특수문자만 사용할 수 있습니다.")
+            @Schema(description = "1~72자. 출력 가능한 ASCII 문자와 공백을 허용합니다.", example = "violet river 829")
+            @NotBlank(message = "비밀번호를 입력해 주세요.") @PasswordByteLength
+            @Pattern(regexp = "[\\x20-\\x7E]+", message = "비밀번호는 출력 가능한 ASCII 문자와 공백만 사용할 수 있습니다.")
             String password
     ) {
     }

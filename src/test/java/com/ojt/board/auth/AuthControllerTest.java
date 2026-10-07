@@ -59,7 +59,9 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 class AuthControllerTest {
 
     private static final String EMAIL = "test@example.com";
-    private static final String PASSWORD = "password123";
+    private static final String PASSWORD = "violet river 829";
+    private static final String MAX_LENGTH_PASSWORD = "R7!violet-river_2026/candle?meadow#orbit="
+            + "Lake9%forest&cloud2*harborTrail";
 
     @Autowired
     private MockMvc mockMvc;
@@ -142,12 +144,12 @@ class AuthControllerTest {
     @Test
     void csrfEndpointDoesNotCreateAServerSessionAndLoginCreatesOne() throws Exception {
         CsrfData csrf = fetchCsrf(null);
-        signup(csrf, "1234");
+        signup(csrf, PASSWORD);
 
         mockMvc.perform(get("/api/auth/me"))
                 .andExpect(status().isUnauthorized());
         MvcResult login = mockMvc.perform(csrfPost("/api/auth/login", csrf)
-                        .content(objectMapper.writeValueAsBytes(new AuthRequest.Login(EMAIL, "1234"))))
+                        .content(objectMapper.writeValueAsBytes(new AuthRequest.Login(EMAIL, PASSWORD))))
                 .andExpect(status().isOk())
                 .andReturn();
 
@@ -259,7 +261,7 @@ class AuthControllerTest {
 
         mockMvc.perform(csrfPost("/api/auth/signup", csrf)
                         .content(objectMapper.writeValueAsBytes(
-                                new AuthRequest.Signup(EMAIL, "replacement", "different-password"))))
+                                new AuthRequest.Signup(EMAIL, "replacement", "amber meadow 731"))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").isNotEmpty());
 
@@ -302,7 +304,7 @@ class AuthControllerTest {
 
     @ParameterizedTest
     @MethodSource("allowedPasswords")
-    void signupAndLoginAcceptPrintableAsciiWithoutRequiredCharacterMix(String password) throws Exception {
+    void signupAndLoginAcceptLongPrintableAsciiWithoutRequiredCharacterMix(String password) throws Exception {
         CsrfData csrf = fetchCsrf(null);
         signup(csrf, password);
 
@@ -324,7 +326,7 @@ class AuthControllerTest {
 
     @Test
     void loginRejectsPasswordWithCorrectFirst72BytesAndExtraCharacters() throws Exception {
-        String password = "a".repeat(72);
+        String password = MAX_LENGTH_PASSWORD;
         CsrfData csrf = fetchCsrf(null);
         signup(csrf, password);
 
@@ -334,9 +336,31 @@ class AuthControllerTest {
     }
 
     @Test
-    void signupRequiresAtLeastFourCharacters() throws Exception {
+    void signupRequiresAtLeastFifteenCharacters() throws Exception {
         CsrfData csrf = fetchCsrf(null);
-        assertPasswordRejected("signup", csrf, "a".repeat(3));
+        mockMvc.perform(csrfPost("/api/auth/signup", csrf)
+                        .content(objectMapper.writeValueAsBytes(
+                                new AuthRequest.Signup(EMAIL, "tester", "violet-river-8"))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("password: 비밀번호는 15~72자로 입력해 주세요."));
+        assertEquals(0, userRepository.count());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "password1234567",
+            "P@ssw0rd2026!!!!",
+            "P@ssw0rdP@ssw0rd",
+            "abcabcabcabcabc",
+            "123456789012345",
+            "qwertyuiopasdfgh",
+            "1qaz2wsx3edc4rfv",
+            "test202620262026"
+    })
+    void signupRejectsCommonPatternsAndEmailDerivedPasswordsWithoutPersistingThem(String password) throws Exception {
+        CsrfData csrf = fetchCsrf(null);
+
+        assertPasswordRejected("signup", csrf, password);
         assertEquals(0, userRepository.count());
     }
 
@@ -362,12 +386,17 @@ class AuthControllerTest {
     }
 
     @Test
-    void loginRejectsWhitespaceAroundCorrectPasswordInsteadOfTrimmingIt() throws Exception {
+    void passwordWhitespaceIsPreservedInsteadOfTrimmed() throws Exception {
         CsrfData csrf = fetchCsrf(null);
-        signup(csrf, PASSWORD);
+        String spacedPassword = "  violet river 829  ";
+        signup(csrf, spacedPassword);
 
-        assertPasswordRejected("login", csrf, " " + PASSWORD);
-        assertPasswordRejected("login", csrf, PASSWORD + " ");
+        mockMvc.perform(csrfPost("/api/auth/login", csrf)
+                        .content(objectMapper.writeValueAsBytes(new AuthRequest.Login(EMAIL, spacedPassword))))
+                .andExpect(status().isOk());
+        mockMvc.perform(csrfPost("/api/auth/login", csrf)
+                        .content(objectMapper.writeValueAsBytes(new AuthRequest.Login(EMAIL, spacedPassword.strip()))))
+                .andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/auth/me"))
                 .andExpect(status().isUnauthorized());
     }
@@ -433,21 +462,21 @@ class AuthControllerTest {
     }
 
     private static Stream<String> allowedPasswords() {
-        String asciiSymbols = IntStream.rangeClosed(0x21, 0x7e)
-                .filter(value -> !Character.isLetterOrDigit(value))
-                .collect(StringBuilder::new, StringBuilder::appendCodePoint, StringBuilder::append)
-                .toString();
-        return Stream.of("abcd", "ABCD", "1234", "!!!!", "abcdefgh", "ABCDEFGH", "12345678", "!!!!!!!!", asciiSymbols,
-                "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789", "a".repeat(72));
+        return Stream.of(
+                "violet-river-82",
+                "onlylowercasephrase",
+                "ONLYUPPERCASEPHRASE",
+                "204938576102938",
+                "violet river 829",
+                "!^>_&{?~#)<[$]+",
+                MAX_LENGTH_PASSWORD);
     }
 
     private static Stream<Arguments> unsupportedPasswords() {
-        Stream<Arguments> asciiControlsAndSpace = IntStream.rangeClosed(0, 0x20)
+        Stream<Arguments> asciiControls = IntStream.rangeClosed(0, 0x1f)
                 .mapToObj(value -> Arguments.of("ASCII U+%04X".formatted(value), PASSWORD + (char) value));
         Stream<Arguments> unicodeAndOtherInvalidValues = Stream.of(
                 Arguments.of("DEL", PASSWORD + (char) 0x7f),
-                Arguments.of("leading space", " " + PASSWORD),
-                Arguments.of("internal space", "pass word123"),
                 Arguments.of("Korean", PASSWORD + "가"),
                 Arguments.of("Korean at former 72-byte limit", "가".repeat(24)),
                 Arguments.of("emoji", PASSWORD + "😀"),
@@ -460,9 +489,10 @@ class AuthControllerTest {
                 Arguments.of("next-line control", PASSWORD + "\u0085"),
                 Arguments.of("Unicode line separator", PASSWORD + "\u2028"),
                 Arguments.of("Unicode paragraph separator", PASSWORD + "\u2029"),
+                Arguments.of("blank spaces", " ".repeat(15)),
                 Arguments.of("empty password", ""),
                 Arguments.of("missing password", null));
-        return Stream.concat(asciiControlsAndSpace, unicodeAndOtherInvalidValues);
+        return Stream.concat(asciiControls, unicodeAndOtherInvalidValues);
     }
 
     private void assertPasswordRejected(String operation, CsrfData csrf, String password) throws Exception {

@@ -57,12 +57,12 @@ class BoardHttpSmokeTest {
             assertFalse(cookies.getCookieStore().getCookies().stream()
                     .anyMatch(cookie -> cookie.getName().equals("JSESSIONID")));
             HttpResponse<byte[]> signup = json(client, "POST", "/api/auth/signup", token,
-                    Map.of("email", "http@example.com", "nickname", "HTTP 사용자", "password", "password123"));
+                    Map.of("email", "http@example.com", "nickname", "HTTP 사용자", "password", "violet river 829"));
             assertEquals(201, signup.statusCode());
             assertFalse(cookies.getCookieStore().getCookies().stream()
                     .anyMatch(cookie -> cookie.getName().equals("JSESSIONID")));
             HttpResponse<byte[]> login = json(client, "POST", "/api/auth/login", token,
-                    Map.of("email", "http@example.com", "password", "password123"));
+                    Map.of("email", "http@example.com", "password", "violet river 829"));
             assertEquals(200, login.statusCode());
             assertFalse(cookies.getCookieStore().getCookies().stream()
                     .filter(cookie -> cookie.getName().equals("JSESSIONID"))
@@ -115,9 +115,9 @@ class BoardHttpSmokeTest {
         try (HttpClient client = HttpClient.newBuilder().cookieHandler(cookies).build()) {
             String token = csrf(client);
             assertEquals(201, json(client, "POST", "/api/auth/signup", token,
-                    Map.of("email", "file-view@example.com", "nickname", "파일 조회", "password", "1234")).statusCode());
+                    Map.of("email", "file-view@example.com", "nickname", "파일 조회", "password", "amber meadow 731")).statusCode());
             assertEquals(200, json(client, "POST", "/api/auth/login", token,
-                    Map.of("email", "file-view@example.com", "password", "1234")).statusCode());
+                    Map.of("email", "file-view@example.com", "password", "amber meadow 731")).statusCode());
             token = csrf(client);
             long postId = body(json(client, "POST", "/api/posts", token,
                     Map.of("title", "HTML file", "content", "Browser view"))).path("id").asLong();
