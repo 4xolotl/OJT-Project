@@ -53,18 +53,18 @@ async function failure(promise, { status, uncertain, name = 'ApiError' }) {
 const checks = [];
 async function check(name, run) { await run(); checks.push(name); }
 
-await check('JSON requests preserve encoding, session cookies and a fresh CSRF request per mutation', async () => {
+await check('JSON requests preserve encoding and session cookies while reusing the cached CSRF token', async () => {
   let token = 0;
   const api = await harness((path, options) => path === '/api/auth/csrf'
     ? json({ headerName: 'X-XSRF-TOKEN', token: 'token-' + ++token })
     : json({ id: 1 }, options.method === 'POST' ? 201 : 200));
   assert.equal((await api.request('/api/posts/1')).id, 1);
   for (const method of ['POST', 'PUT']) await api.request('/api/posts', { method, body: { title: '한글 🧪', content: 'Content' } });
-  assert.deepEqual(api.calls.map(call => call.path), ['/api/posts/1', '/api/auth/csrf', '/api/posts', '/api/auth/csrf', '/api/posts']);
+  assert.deepEqual(api.calls.map(call => call.path), ['/api/posts/1', '/api/auth/csrf', '/api/posts', '/api/posts']);
   assert.equal(api.calls[2].options.body, JSON.stringify({ title: '한글 🧪', content: 'Content' }));
   assert.equal(api.calls[2].options.headers.get('Content-Type'), 'application/json');
   assert.equal(api.calls[2].options.headers.get('X-XSRF-TOKEN'), 'token-1');
-  assert.equal(api.calls[4].options.headers.get('X-XSRF-TOKEN'), 'token-2');
+  assert.equal(api.calls[3].options.headers.get('X-XSRF-TOKEN'), 'token-1');
   for (const { options } of api.calls) {
     assert.equal(options.credentials, 'same-origin');
     assert.equal(options.redirect, 'error');
@@ -72,6 +72,102 @@ await check('JSON requests preserve encoding, session cookies and a fresh CSRF r
   }
   assert.ok(api.delays.every(delay => delay === 15000));
   assert.equal(api.activeTimers, 0);
+});
+
+await check('Concurrent mutations share one in-flight CSRF request', async () => {
+  let resolveCsrf;
+  const pendingCsrf = new Promise(resolve => { resolveCsrf = resolve; });
+  const api = await harness(path => path === '/api/auth/csrf' ? pendingCsrf : json({ id: 1 }, 201));
+  const first = api.request('/api/posts', { method: 'POST', body: { title: 'first' } });
+  const second = api.request('/api/posts/2/comments', { method: 'POST', body: { content: 'second' } });
+  await flush();
+  assert.deepEqual(api.calls.map(call => call.path), ['/api/auth/csrf']);
+  resolveCsrf(json({ headerName: 'X-XSRF-TOKEN', token: 'shared-token' }));
+  await Promise.all([first, second]);
+  assert.deepEqual(api.calls.map(call => call.path), ['/api/auth/csrf', '/api/posts', '/api/posts/2/comments']);
+  assert.equal(api.calls[1].options.headers.get('X-XSRF-TOKEN'), 'shared-token');
+  assert.equal(api.calls[2].options.headers.get('X-XSRF-TOKEN'), 'shared-token');
+  assert.equal(api.activeTimers, 0);
+});
+
+await check('Cancelling one concurrent mutation does not abort the shared token request for another', async () => {
+  let resolveCsrf;
+  const pendingCsrf = new Promise(resolve => { resolveCsrf = resolve; });
+  const firstController = new AbortController();
+  const api = await harness(path => path === '/api/auth/csrf' ? pendingCsrf : json({ id: 1 }, 201));
+  const first = api.request('/api/posts', { method: 'POST', body: {}, signal: firstController.signal });
+  const second = api.request('/api/posts/2/comments', { method: 'POST', body: {} });
+  await flush();
+  firstController.abort();
+  await failure(first, { uncertain: false, name: 'AbortError' });
+  assert.equal(api.calls[0].options.signal.aborted, false);
+  resolveCsrf(csrf());
+  assert.equal((await second).id, 1);
+  assert.deepEqual(api.calls.map(call => call.path), ['/api/auth/csrf', '/api/posts/2/comments']);
+  assert.equal(api.activeTimers, 0);
+});
+
+await check('Successful login and logout invalidate the cached token after sending each mutation once', async () => {
+  let token = 0;
+  const api = await harness(path => path === '/api/auth/csrf'
+    ? json({ headerName: 'X-XSRF-TOKEN', token: 'token-' + ++token })
+    : path === '/api/auth/logout' ? new Response(null, { status: 204 }) : json({ id: 1 }));
+  await api.request('/api/auth/login', { method: 'POST', body: { email: 'user@example.com', password: 'password' } });
+  await api.request('/api/posts', { method: 'POST', body: {} });
+  await api.request('/api/auth/logout', { method: 'POST' });
+  await api.request('/api/posts', { method: 'POST', body: {} });
+  assert.deepEqual(api.calls.map(call => call.path), [
+    '/api/auth/csrf', '/api/auth/login',
+    '/api/auth/csrf', '/api/posts', '/api/auth/logout',
+    '/api/auth/csrf', '/api/posts'
+  ]);
+  assert.equal(api.calls[1].options.headers.get('X-XSRF-TOKEN'), 'token-1');
+  assert.equal(api.calls[3].options.headers.get('X-XSRF-TOKEN'), 'token-2');
+  assert.equal(api.calls[4].options.headers.get('X-XSRF-TOKEN'), 'token-2');
+  assert.equal(api.calls[6].options.headers.get('X-XSRF-TOKEN'), 'token-3');
+  assert.equal(api.activeTimers, 0);
+});
+
+await check('An authentication success invalidates the token even when its response body is malformed', async () => {
+  let token = 0;
+  const api = await harness(path => path === '/api/auth/csrf'
+    ? json({ headerName: 'X-XSRF-TOKEN', token: 'token-' + ++token })
+    : path === '/api/auth/login' ? new Response('not-json', { status: 200 }) : json({ id: 1 }));
+  await failure(api.request('/api/auth/login', { method: 'POST', body: {} }), { status: 200, uncertain: true });
+  await api.request('/api/posts', { method: 'POST', body: {} });
+  assert.deepEqual(api.calls.map(call => call.path), [
+    '/api/auth/csrf', '/api/auth/login', '/api/auth/csrf', '/api/posts'
+  ]);
+  assert.equal(api.calls[1].options.headers.get('X-XSRF-TOKEN'), 'token-1');
+  assert.equal(api.calls[3].options.headers.get('X-XSRF-TOKEN'), 'token-2');
+});
+
+await check('A rejected login keeps the current token cached', async () => {
+  let loginAttempts = 0;
+  const api = await harness(path => {
+    if (path === '/api/auth/csrf') return csrf();
+    if (path === '/api/auth/login' && loginAttempts++ === 0) return json({ message: '로그인 실패' }, 401);
+    return json({ id: 1 });
+  });
+  await failure(api.request('/api/auth/login', { method: 'POST', body: {} }), { status: 401, uncertain: false });
+  await api.request('/api/auth/login', { method: 'POST', body: {} });
+  assert.deepEqual(api.calls.map(call => call.path), ['/api/auth/csrf', '/api/auth/login', '/api/auth/login']);
+  assert.equal(api.calls[1].options.headers.get('X-XSRF-TOKEN'), 'fresh-token');
+  assert.equal(api.calls[2].options.headers.get('X-XSRF-TOKEN'), 'fresh-token');
+});
+
+await check('A mutation 403 invalidates the token for the next call without retrying the rejected mutation', async () => {
+  let token = 0;
+  let mutations = 0;
+  const api = await harness(path => path === '/api/auth/csrf'
+    ? json({ headerName: 'X-XSRF-TOKEN', token: 'token-' + ++token })
+    : ++mutations === 1 ? json({ message: '요청 권한 또는 CSRF 토큰을 확인해 주세요.' }, 403) : json({ id: 1 }));
+  await failure(api.request('/api/posts', { method: 'POST', body: {} }), { status: 403, uncertain: false });
+  assert.deepEqual(api.calls.map(call => call.path), ['/api/auth/csrf', '/api/posts']);
+  await api.request('/api/posts', { method: 'POST', body: {} });
+  assert.deepEqual(api.calls.map(call => call.path), ['/api/auth/csrf', '/api/posts', '/api/auth/csrf', '/api/posts']);
+  assert.equal(api.calls[1].options.headers.get('X-XSRF-TOKEN'), 'token-1');
+  assert.equal(api.calls[3].options.headers.get('X-XSRF-TOKEN'), 'token-2');
 });
 
 await check('Multipart preserves the JSON part, repeated binary files and browser-generated boundary', async () => {

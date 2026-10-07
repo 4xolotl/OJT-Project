@@ -168,9 +168,17 @@ class BoardPageTest {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         String postBody = "{\"title\":\"Unauthorized post\",\"content\":\"Must not be stored\"}";
+        ResponseEntity<JsonNode> postsBeforeRejectedWrite = restTemplate.getForEntity("/api/posts", JsonNode.class);
+        assertEquals(HttpStatus.OK, postsBeforeRejectedWrite.getStatusCode());
+        assertNotNull(postsBeforeRejectedWrite.getBody());
         ResponseEntity<JsonNode> missingCsrf = restTemplate.postForEntity(
                 "/api/posts", new HttpEntity<>(postBody, headers), JsonNode.class);
-        assertEquals(HttpStatus.UNAUTHORIZED, missingCsrf.getStatusCode());
+        assertEquals(HttpStatus.FORBIDDEN, missingCsrf.getStatusCode());
+        ResponseEntity<JsonNode> postsAfterRejectedWrite = restTemplate.getForEntity("/api/posts", JsonNode.class);
+        assertEquals(HttpStatus.OK, postsAfterRejectedWrite.getStatusCode());
+        assertNotNull(postsAfterRejectedWrite.getBody());
+        assertEquals(postsBeforeRejectedWrite.getBody().path("totalElements").asLong(),
+                postsAfterRejectedWrite.getBody().path("totalElements").asLong());
 
         ResponseEntity<JsonNode> csrfResponse = restTemplate.getForEntity("/api/auth/csrf", JsonNode.class);
         assertEquals(HttpStatus.OK, csrfResponse.getStatusCode());

@@ -1,5 +1,9 @@
 package com.ojt.board.auth;
 
+import java.util.Map;
+
+import org.springframework.http.CacheControl;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -7,8 +11,8 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.authentication.session.CompositeSessionAuthenticationStrategy;
 import org.springframework.security.web.context.SecurityContextRepository;
-import org.springframework.security.web.csrf.CsrfAuthenticationStrategy;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -19,30 +23,63 @@ import org.springframework.web.bind.annotation.RestController;
 import com.ojt.board.user.User;
 
 import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.headers.Header;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
+@Slf4j
 @Tag(name = "인증")
 public class AuthController {
 
     private final AuthService authService;
     private final AuthenticationManager authenticationManager;
     private final SecurityContextRepository securityContextRepository;
-    private final CsrfAuthenticationStrategy csrfAuthenticationStrategy;
+    private final CompositeSessionAuthenticationStrategy sessionAuthenticationStrategy;
+    private final CsrfTokenRateLimiter csrfTokenRateLimiter;
 
     @GetMapping("/csrf")
-    @Operation(summary = "CSRF 토큰 발급", description = "세션을 초기화하고 CSRF 토큰을 발급합니다. 로그인·로그아웃 후 다시 조회할 수 있습니다.")
-    public CsrfToken csrf(@Parameter(hidden = true) CsrfToken csrfToken, HttpServletRequest request) {
-        request.getSession(true);
-        return csrfToken;
+    @Operation(summary = "CSRF 토큰 발급", description = "서버 세션을 만들지 않고 쿠키 기반 CSRF 토큰을 발급합니다. "
+            + "로그인·로그아웃 후 다시 조회할 수 있습니다.")
+    @ApiResponse(responseCode = "429", description = "CSRF 토큰 요청 제한 초과",
+            headers = @Header(name = HttpHeaders.RETRY_AFTER,
+                    description = "다시 요청할 때까지 남은 초",
+                    schema = @Schema(type = "integer", format = "int64", minimum = "1")))
+    @ApiResponse(responseCode = "503", description = "CSRF 토큰 요청 제한 상태 저장소 포화",
+            headers = @Header(name = HttpHeaders.RETRY_AFTER,
+                    description = "다시 요청할 때까지 남은 초",
+                    schema = @Schema(type = "integer", format = "int64", minimum = "1")))
+    public ResponseEntity<?> csrf(HttpServletRequest request) {
+        CsrfTokenRateLimiter.Decision decision = csrfTokenRateLimiter.acquire(request.getRemoteAddr());
+        if (!decision.permitted()) {
+            if (decision.shouldLog()) {
+                log.warn("CSRF token issuance rejected: path=/api/auth/csrf reason={} source={}",
+                        decision.reason(), request.getRemoteAddr());
+            }
+            HttpStatus status = decision.reason() == CsrfTokenRateLimiter.DecisionReason.SOURCE_CAPACITY
+                    ? HttpStatus.SERVICE_UNAVAILABLE
+                    : HttpStatus.TOO_MANY_REQUESTS;
+            String message = status == HttpStatus.SERVICE_UNAVAILABLE
+                    ? "CSRF 토큰 발급을 일시적으로 처리할 수 없습니다. 잠시 후 다시 시도해 주세요."
+                    : "CSRF 토큰 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.";
+            return ResponseEntity.status(status)
+                    .header(HttpHeaders.RETRY_AFTER, Long.toString(decision.retryAfterSeconds()))
+                    .cacheControl(CacheControl.noStore())
+                    .body(Map.of("message", message));
+        }
+
+        CsrfToken csrfToken = (CsrfToken) request.getAttribute(CsrfToken.class.getName());
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(csrfToken);
     }
 
     @PostMapping("/signup")
@@ -64,7 +101,7 @@ public class AuthController {
                 new UsernamePasswordAuthenticationToken(request.email(), request.password())
         );
 
-        csrfAuthenticationStrategy.onAuthentication(authentication, httpRequest, httpResponse);
+        sessionAuthenticationStrategy.onAuthentication(authentication, httpRequest, httpResponse);
         SecurityContext context = SecurityContextHolder.createEmptyContext();
         context.setAuthentication(authentication);
         SecurityContextHolder.setContext(context);
