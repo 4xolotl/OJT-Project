@@ -1,5 +1,7 @@
 package com.ojt.board.file;
 
+import com.ojt.board.authorization.ObjectAuthorizationGuard;
+import com.ojt.board.authorization.ObjectAuthorizationOperation;
 import com.ojt.board.global.ResourceNotFoundException;
 import com.ojt.board.global.EditConflictException;
 import com.ojt.board.post.Post;
@@ -28,6 +30,7 @@ public class AttachmentService {
     private final AttachmentRepository attachmentRepository;
     private final PostRepository postRepository;
     private final LocalFileStorage fileStorage;
+    private final ObjectAuthorizationGuard authorizationGuard;
 
     public List<AttachmentResponse> list(Long postId) {
         if (!postRepository.existsById(postId)) {
@@ -39,8 +42,8 @@ public class AttachmentService {
 
     @Transactional
     public List<AttachmentResponse> upload(Long postId, Long actorId, List<MultipartFile> files) {
-        Post post = requireLockedPost(postId);
-        post.requireAuthor(actorId);
+        Post post = requireOwnedLockedPost(postId, actorId, postId,
+                ObjectAuthorizationOperation.ATTACHMENT_UPLOAD);
         return storeFiles(post, files);
     }
 
@@ -66,7 +69,7 @@ public class AttachmentService {
         if (!expected.containsAll(deleted)) {
             throw new IllegalArgumentException("삭제할 파일은 처음 조회한 첨부파일 목록에 있어야 합니다.");
         }
-        List<Attachment> current = attachmentRepository.findByPostIdOrderByIdAsc(post.getId());
+        List<Attachment> current = attachmentRepository.findByPostIdOrderByIdAscForUpdate(post.getId());
         Set<Long> currentIds = new HashSet<>();
         current.forEach(attachment -> currentIds.add(attachment.getId()));
         if (!currentIds.equals(expected)) {
@@ -95,9 +98,9 @@ public class AttachmentService {
         // This shares the lock order used by uploads and post deletion.
         Long postId = attachmentRepository.findPostIdById(fileId)
                 .orElseThrow(() -> new ResourceNotFoundException("파일을 찾을 수 없습니다."));
-        Post post = requireLockedPost(postId);
-        post.requireAuthor(actorId);
-        Attachment attachment = requireAttachment(fileId);
+        Post post = requireOwnedLockedPost(postId, actorId, fileId,
+                ObjectAuthorizationOperation.ATTACHMENT_DELETE);
+        Attachment attachment = requireLockedAttachment(fileId, postId);
         attachmentRepository.delete(attachment);
         removeAfterCommit(List.of(attachment.getStoredFilename()));
     }
@@ -105,7 +108,7 @@ public class AttachmentService {
     /** The caller must hold the post write lock inside the post deletion transaction. */
     @Transactional(propagation = Propagation.MANDATORY)
     public void deleteAllForPost(Post post) {
-        List<Attachment> attachments = attachmentRepository.findByPostIdOrderByIdAsc(post.getId());
+        List<Attachment> attachments = attachmentRepository.findByPostIdOrderByIdAscForUpdate(post.getId());
         List<String> storedFilenames = attachments.stream().map(Attachment::getStoredFilename).toList();
         attachmentRepository.deleteAll(attachments);
         removeAfterCommit(storedFilenames);
@@ -116,8 +119,23 @@ public class AttachmentService {
                 .orElseThrow(() -> new ResourceNotFoundException("게시글을 찾을 수 없습니다."));
     }
 
+    private Post requireOwnedLockedPost(Long postId, Long actorId, Long resourceId,
+                                        ObjectAuthorizationOperation operation) {
+        Long ownerId = postRepository.findAuthorIdById(postId)
+                .orElseThrow(() -> new ResourceNotFoundException("게시글을 찾을 수 없습니다."));
+        authorizationGuard.requireOwner(actorId, ownerId, resourceId, operation);
+        Post post = requireLockedPost(postId);
+        authorizationGuard.requireOwner(actorId, post.getAuthor().getId(), resourceId, operation);
+        return post;
+    }
+
     private Attachment requireAttachment(Long fileId) {
         return attachmentRepository.findById(fileId)
+                .orElseThrow(() -> new ResourceNotFoundException("파일을 찾을 수 없습니다."));
+    }
+
+    private Attachment requireLockedAttachment(Long fileId, Long postId) {
+        return attachmentRepository.findByIdAndPostIdForUpdate(fileId, postId)
                 .orElseThrow(() -> new ResourceNotFoundException("파일을 찾을 수 없습니다."));
     }
 

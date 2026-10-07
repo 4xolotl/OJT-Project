@@ -1,5 +1,7 @@
 package com.ojt.board.comment;
 
+import com.ojt.board.authorization.ObjectAuthorizationGuard;
+import com.ojt.board.authorization.ObjectAuthorizationOperation;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -22,6 +24,7 @@ public class CommentService {
     private final CommentRepository commentRepository;
     private final PostRepository postRepository;
     private final UserRepository userRepository;
+    private final ObjectAuthorizationGuard authorizationGuard;
 
     public PageResponse<CommentResponse> list(Long postId, int page, int size) {
         if (page < 0 || size < 1 || size > 100) {
@@ -46,9 +49,11 @@ public class CommentService {
 
     @Transactional
     public CommentResponse update(Long postId, Long commentId, Long actorId, CommentRequest request) {
+        requireCommentOwner(postId, commentId, actorId, ObjectAuthorizationOperation.COMMENT_UPDATE);
         lockPost(postId);
         Comment comment = findComment(postId, commentId);
-        comment.requireAuthor(actorId);
+        authorizationGuard.requireOwner(actorId, comment.getAuthor().getId(), commentId,
+                ObjectAuthorizationOperation.COMMENT_UPDATE);
         comment.updateContent(request.content());
         commentRepository.flush();
         return CommentResponse.from(comment);
@@ -56,10 +61,19 @@ public class CommentService {
 
     @Transactional
     public void delete(Long postId, Long commentId, Long actorId) {
+        requireCommentOwner(postId, commentId, actorId, ObjectAuthorizationOperation.COMMENT_DELETE);
         lockPost(postId);
         Comment comment = findComment(postId, commentId);
-        comment.requireAuthor(actorId);
+        authorizationGuard.requireOwner(actorId, comment.getAuthor().getId(), commentId,
+                ObjectAuthorizationOperation.COMMENT_DELETE);
         commentRepository.delete(comment);
+    }
+
+    private void requireCommentOwner(Long postId, Long commentId, Long actorId,
+                                     ObjectAuthorizationOperation operation) {
+        Long ownerId = commentRepository.findAuthorIdByIdAndPostId(commentId, postId)
+                .orElseThrow(() -> new ResourceNotFoundException("댓글을 찾을 수 없습니다."));
+        authorizationGuard.requireOwner(actorId, ownerId, commentId, operation);
     }
 
     private Post lockPost(Long postId) {
@@ -68,7 +82,7 @@ public class CommentService {
     }
 
     private Comment findComment(Long postId, Long commentId) {
-        return commentRepository.findByIdAndPostId(commentId, postId)
+        return commentRepository.findByIdAndPostIdForUpdate(commentId, postId)
                 .orElseThrow(() -> new ResourceNotFoundException("댓글을 찾을 수 없습니다."));
     }
 

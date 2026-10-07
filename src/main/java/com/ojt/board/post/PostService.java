@@ -1,5 +1,7 @@
 package com.ojt.board.post;
 
+import com.ojt.board.authorization.ObjectAuthorizationGuard;
+import com.ojt.board.authorization.ObjectAuthorizationOperation;
 import com.ojt.board.file.AttachmentService;
 import com.ojt.board.global.EditConflictException;
 import com.ojt.board.global.PageResponse;
@@ -26,6 +28,7 @@ public class PostService {
     private final PostRepository postRepository;
     private final UserRepository userRepository;
     private final AttachmentService attachmentService;
+    private final ObjectAuthorizationGuard authorizationGuard;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -64,7 +67,7 @@ public class PostService {
 
     @Transactional
     public PostResponse update(Long id, Long actorId, PostRequest request) {
-        Post post = findOwnedForUpdate(id, actorId);
+        Post post = findOwnedForUpdate(id, actorId, ObjectAuthorizationOperation.POST_UPDATE);
         post.update(request.title(), request.content());
         postRepository.flush();
         return PostResponse.from(post);
@@ -72,7 +75,7 @@ public class PostService {
 
     @Transactional
     public PostResponse updateWithFiles(Long id, Long actorId, PostEditRequest request, List<MultipartFile> files) {
-        Post post = findOwnedForUpdate(id, actorId);
+        Post post = findOwnedForUpdate(id, actorId, ObjectAuthorizationOperation.POST_UPDATE);
         if (!new HashSet<>(request.attachmentIds()).containsAll(request.deletedFileIds())) {
             throw new IllegalArgumentException("삭제할 파일은 처음 조회한 첨부파일 목록에 있어야 합니다.");
         }
@@ -91,7 +94,7 @@ public class PostService {
 
     @Transactional
     public void delete(Long id, Long actorId) {
-        Post post = findOwnedForUpdate(id, actorId);
+        Post post = findOwnedForUpdate(id, actorId, ObjectAuthorizationOperation.POST_DELETE);
         attachmentService.deleteAllForPost(post);
         // Comment foreign keys use ON DELETE CASCADE. Physical files are removed after commit.
         postRepository.delete(post);
@@ -104,10 +107,13 @@ public class PostService {
         return postRepository.save(new Post(author, request.title(), request.content()));
     }
 
-    private Post findOwnedForUpdate(Long id, Long actorId) {
+    private Post findOwnedForUpdate(Long id, Long actorId, ObjectAuthorizationOperation operation) {
+        Long ownerId = postRepository.findAuthorIdById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("게시글을 찾을 수 없습니다."));
+        authorizationGuard.requireOwner(actorId, ownerId, id, operation);
         Post post = postRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new ResourceNotFoundException("게시글을 찾을 수 없습니다."));
-        post.requireAuthor(actorId);
+        authorizationGuard.requireOwner(actorId, post.getAuthor().getId(), id, operation);
         return post;
     }
 }
