@@ -48,7 +48,7 @@
               <legend class="sr-only">로그인 정보</legend>
               <div class="auth-field">
                 <label for="email">이메일</label>
-                <input class="text-control" id="email" name="email" type="email" inputmode="email" autocomplete="username" autocapitalize="off" spellcheck="false" maxlength="100" placeholder="이메일 주소를 입력해 주세요" aria-describedby="email-error" required>
+                <input class="text-control" id="email" name="email" type="email" inputmode="email" autocomplete="username" autocapitalize="off" spellcheck="false" maxlength="100" pattern="[\x21-\x7E]+" placeholder="이메일 주소를 입력해 주세요" aria-describedby="email-error" required>
                 <p id="email-error" class="form-error" hidden></p>
               </div>
               <div class="auth-field">

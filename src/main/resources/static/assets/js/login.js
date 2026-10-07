@@ -6,6 +6,7 @@ const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 const returnTo = loginReturnUrl(params.get('returnTo'));
 const googleAuthorizationUrl = '/oauth2/authorization/google';
+const isAsciiEmail = value => /^[\x21-\x7e]+$/.test(value);
 const oauthMessages = Object.freeze({
   cancelled: 'Google 로그인을 취소했어요. 다시 시도하거나 이메일로 로그인해 주세요.',
   email_conflict: '같은 이메일로 가입한 계정이 있어요. 기존 이메일과 비밀번호로 로그인해 주세요. 계정은 자동으로 연결하지 않아요.',
@@ -85,6 +86,24 @@ function showError(message = '') {
   $('login-error').hidden = !message;
 }
 
+function loginErrorMessage(error) {
+  if (!(error instanceof ApiError)) return error.message;
+  if (error.requestPath === '/api/auth/login' && error.status === 429) {
+    const delay = Number.isSafeInteger(error.retryAfterSeconds) && error.retryAfterSeconds > 0
+      ? `${error.retryAfterSeconds}초 후`
+      : '잠시 후';
+    return `로그인 시도가 너무 많아요. ${delay} 다시 시도해 주세요.`;
+  }
+  if (error.requestPath === '/api/auth/login' && error.status === 503) {
+    return '로그인 요청을 일시적으로 처리할 수 없어요. 잠시 후 다시 시도해 주세요.';
+  }
+  if (error.requestPath === '/api/auth/login' && error.status === 401) {
+    return '이메일 또는 비밀번호를 확인해 주세요.';
+  }
+  if (error.status === 403) return '로그인 요청을 확인하지 못했어요. 로그인 버튼을 다시 눌러 주세요.';
+  return error.message;
+}
+
 function fieldError(id, message = '') {
   $(id).setAttribute('aria-invalid', String(Boolean(message)));
   $(`${id}-error`).textContent = message;
@@ -148,11 +167,14 @@ async function login(event) {
   showError();
   fieldError('email');
   fieldError('password');
-  const email = $('email').value.trim();
+  const rawEmail = $('email').value;
+  const rawEmailIsAscii = /^[\x00-\x7f]*$/.test(rawEmail);
+  const email = rawEmail.trim();
   const password = $('password').value;
-  $('email').value = email;
+  if (rawEmailIsAscii) $('email').value = email;
   let invalid;
-  if (!email || email.length > 100 || $('email').validity.typeMismatch) {
+  if (!email || rawEmail.length > 100 || !rawEmailIsAscii
+      || !isAsciiEmail(email) || $('email').validity.typeMismatch) {
     fieldError('email', email ? '올바른 이메일 주소를 입력해 주세요. (최대 100자)' : '이메일을 입력해 주세요.');
     invalid = $('email');
   }
@@ -178,12 +200,7 @@ async function login(event) {
     location.replace(returnTo);
   } catch (error) {
     if (attempt !== generation) return;
-    const message = error instanceof ApiError && error.status === 401
-      ? '이메일 또는 비밀번호를 확인해 주세요.'
-      : error instanceof ApiError && error.status === 403
-        ? '로그인 요청을 확인하지 못했어요. 로그인 버튼을 다시 눌러 주세요.'
-        : error.message;
-    showError(message);
+    showError(loginErrorMessage(error));
   } finally {
     if (attempt === generation) {
       mutationController = undefined;

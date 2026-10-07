@@ -37,8 +37,9 @@ class AuthServiceTest {
         when(passwordEncoder.encode(password)).thenReturn("encoded-password");
         when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        User saved = authService.signup(new AuthRequest.Signup("test@example.com", "tester", password));
+        User saved = authService.signup(new AuthRequest.Signup("TeSt@example.com", "tester", password));
 
+        assertEquals("test@example.com", saved.getEmail());
         assertEquals("encoded-password", saved.getPassword());
         verify(passwordEncoder).encode(password);
     }

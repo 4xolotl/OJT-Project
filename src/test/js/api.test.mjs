@@ -10,8 +10,8 @@ const source = await readFile(new URL('../../main/resources/static/assets/js/api
 const NativeFormData = globalThis.FormData ?? (await new Response('', {
   headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
 }).formData()).constructor;
-const json = (body, status = 200) => new Response(JSON.stringify(body), {
-  status, headers: { 'Content-Type': 'application/json' }
+const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), {
+  status, headers: { 'Content-Type': 'application/json', ...headers }
 });
 const csrf = () => json({ headerName: 'X-XSRF-TOKEN', token: 'fresh-token' });
 const flush = () => new Promise(resolve => setImmediate(resolve));
@@ -149,11 +149,66 @@ await check('A rejected login keeps the current token cached', async () => {
     if (path === '/api/auth/login' && loginAttempts++ === 0) return json({ message: '로그인 실패' }, 401);
     return json({ id: 1 });
   });
-  await failure(api.request('/api/auth/login', { method: 'POST', body: {} }), { status: 401, uncertain: false });
+  const loginFailure = await failure(
+    api.request('/api/auth/login', { method: 'POST', body: {} }),
+    { status: 401, uncertain: false }
+  );
+  assert.equal(loginFailure.requestPath, '/api/auth/login');
   await api.request('/api/auth/login', { method: 'POST', body: {} });
   assert.deepEqual(api.calls.map(call => call.path), ['/api/auth/csrf', '/api/auth/login', '/api/auth/login']);
   assert.equal(api.calls[1].options.headers.get('X-XSRF-TOKEN'), 'fresh-token');
   assert.equal(api.calls[2].options.headers.get('X-XSRF-TOKEN'), 'fresh-token');
+});
+
+await check('Response failures preserve their request path and only positive decimal safe-integer Retry-After values', async () => {
+  const cases = [
+    ['1', 1],
+    ['9007199254740991', Number.MAX_SAFE_INTEGER],
+    ['01', 1],
+    [undefined, undefined],
+    ['0', undefined],
+    ['000', undefined],
+    ['-1', undefined],
+    ['1.5', undefined],
+    ['1e2', undefined],
+    ['Wed, 21 Oct 2015 07:28:00 GMT', undefined],
+    ['7 seconds', undefined],
+    ['9007199254740992', undefined]
+  ];
+  for (const [header, expected] of cases) {
+    const api = await harness(path => {
+      if (path === '/api/auth/csrf') return csrf();
+      const headers = header === undefined ? {} : { 'Retry-After': header };
+      return json({ message: 'rate limited' }, 429, headers);
+    });
+    const error = await failure(
+      api.request('/api/auth/login', { method: 'POST', body: {} }),
+      { status: 429, uncertain: false }
+    );
+    assert.equal(error.requestPath, '/api/auth/login');
+    assert.equal(error.retryAfterSeconds, expected);
+  }
+
+  const csrfLimited = await harness(() => json(
+    { message: 'CSRF token limited' }, 429, { 'Retry-After': '9' }
+  ));
+  const csrfError = await failure(
+    csrfLimited.request('/api/auth/login', { method: 'POST', body: {} }),
+    { status: 429, uncertain: false }
+  );
+  assert.equal(csrfError.requestPath, '/api/auth/csrf');
+  assert.equal(csrfError.retryAfterSeconds, 9);
+  assert.deepEqual(csrfLimited.calls.map(call => call.path), ['/api/auth/csrf']);
+
+  const unavailable = await harness(path => path === '/api/auth/csrf'
+    ? csrf()
+    : json({ message: 'temporarily unavailable' }, 503, { 'Retry-After': '30' }));
+  const unavailableError = await failure(
+    unavailable.request('/api/auth/login', { method: 'POST', body: {} }),
+    { status: 503, uncertain: true }
+  );
+  assert.equal(unavailableError.requestPath, '/api/auth/login');
+  assert.equal(unavailableError.retryAfterSeconds, 30);
 });
 
 await check('A mutation 403 invalidates the token for the next call without retrying the rejected mutation', async () => {

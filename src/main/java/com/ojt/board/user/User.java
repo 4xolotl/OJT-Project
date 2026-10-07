@@ -48,7 +48,15 @@ public class User implements UserDetails, BoardPrincipal {
     private UserRole role = UserRole.USER;
 
     public User(String email, String nickname, String password) {
-        this.email = email;
+        int maxEmailLength = password == null ? 254 : 100;
+        if (email == null || email.length() > maxEmailLength) {
+            throw new IllegalArgumentException("올바른 이메일 주소가 필요합니다.");
+        }
+        String canonicalEmail = EmailCanonicalizer.canonicalize(email);
+        if (!EmailCanonicalizer.isValidCanonical(canonicalEmail, maxEmailLength)) {
+            throw new IllegalArgumentException("올바른 이메일 주소가 필요합니다.");
+        }
+        this.email = canonicalEmail;
         this.nickname = nickname;
         this.password = password;
     }

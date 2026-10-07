@@ -19,7 +19,12 @@ function deferred() {
   return { promise, resolve, reject };
 }
 class MockApiError extends Error {
-  constructor(message, status) { super(message); this.status = status; }
+  constructor(message, status, requestPath, retryAfterSeconds) {
+    super(message);
+    this.status = status;
+    this.requestPath = requestPath;
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
 }
 
 async function harness({
@@ -160,18 +165,21 @@ await check('Signup link preserves safe return destinations and rejects external
   assert.equal(external.node('signup-link').href, '/signup.html?returnTo=%2F');
 });
 
-await check('Empty and browser-invalid email are rejected before login', async () => {
-  const page = await harness();
-  page.fill('   ');
-  await page.submit();
-  assert.equal(page.requests.length, 0);
-  assert.equal(page.node('email').getAttribute('aria-invalid'), 'true');
-  assert.equal(page.document.activeElement, page.node('email'));
-  page.fill('invalid-email');
-  page.node('email').validity.typeMismatch = true;
-  await page.submit();
-  assert.equal(page.requests.length, 0);
-  assert.equal(page.node('email-error').hidden, false);
+await check('Empty, browser-invalid and non-ASCII email are rejected before login', async () => {
+  for (const email of [
+    '   ', 'invalid-email', 'tést@example.com', 'user@faß.de', 'ＴＥＳＴ@example.com',
+    '\u3000tester@example.com\u3000', '\u00a0tester@example.com\u00a0'
+  ]) {
+    const page = await harness();
+    page.fill(email);
+    page.node('email').validity.typeMismatch = email === 'invalid-email';
+    await page.submit();
+    assert.equal(page.requests.length, 0);
+    assert.equal(page.node('email').getAttribute('aria-invalid'), 'true');
+    assert.equal(page.document.activeElement, page.node('email'));
+    assert.equal(page.node('email-error').hidden, false);
+    if (/[^\x00-\x7f]/.test(email)) assert.equal(page.node('email').value, email);
+  }
 });
 
 await check('Empty, overlong, control-character and non-ASCII login passwords are rejected', async () => {
@@ -242,7 +250,9 @@ await check('Password visibility toggles type and accessible pressed state', asy
 });
 
 await check('401 uses a generic error, preserves credentials, and hides the password', async () => {
-  const page = await harness({ mutate: async () => { throw new MockApiError('This email does not exist: internal detail', 401); } });
+  const page = await harness({ mutate: async () => {
+    throw new MockApiError('This email does not exist: internal detail', 401, '/api/auth/login');
+  } });
   page.fill('tester@example.com', 'Retained-Password!1');
   await page.click('toggle-password');
   await page.submit();
@@ -255,6 +265,81 @@ await check('401 uses a generic error, preserves credentials, and hides the pass
   assert.equal(page.redirects.length, 0);
   await page.input('password');
   assert.equal(page.node('login-error').hidden, true);
+});
+
+await check('A 401 from another endpoint is not mislabeled as a credential failure', async () => {
+  const page = await harness({ mutate: async () => {
+    throw new MockApiError('인증 준비 요청이 거부되었어요.', 401, '/api/auth/csrf');
+  } });
+  page.fill();
+  await page.submit();
+  assert.equal(page.node('login-error').textContent, '인증 준비 요청이 거부되었어요.');
+});
+
+await check('Login rate limits use a fixed message with a validated delay and keep the form retryable', async () => {
+  const page = await harness({ mutate: async () => {
+    throw new MockApiError('private limiter detail', 429, '/api/auth/login', 17);
+  } });
+  page.fill('tester@example.com', 'Retained-Password!1');
+  await page.click('toggle-password');
+  await page.submit();
+  assert.equal(page.node('login-error').textContent,
+    '로그인 시도가 너무 많아요. 17초 후 다시 시도해 주세요.');
+  assert.ok(!page.node('login-error').textContent.includes('private'));
+  assert.equal(page.node('email').value, 'tester@example.com');
+  assert.equal(page.node('password').value, 'Retained-Password!1');
+  assert.equal(page.node('password').type, 'password');
+  assert.equal(page.node('login-fields').disabled, false);
+  assert.equal(page.node('login-form').getAttribute('aria-busy'), 'false');
+  assert.equal(page.redirects.length, 0);
+  assert.equal(page.requests.length, 1);
+  await flush();
+  assert.equal(page.requests.length, 1);
+});
+
+await check('Login rate limits without a validated delay use a fixed fallback message', async () => {
+  for (const delay of [undefined, 0, '7', Number.MAX_SAFE_INTEGER + 1]) {
+    const page = await harness({ mutate: async () => {
+      throw new MockApiError('account-specific private detail', 429, '/api/auth/login', delay);
+    } });
+    page.fill();
+    await page.submit();
+    assert.equal(page.node('login-error').textContent,
+      '로그인 시도가 너무 많아요. 잠시 후 다시 시도해 주세요.');
+    assert.ok(!page.node('login-error').textContent.includes('account-specific'));
+    assert.equal(page.node('login-fields').disabled, false);
+    assert.equal(page.requests.length, 1);
+  }
+});
+
+await check('Login limiter capacity failures use a fixed temporary outage message', async () => {
+  const page = await harness({ mutate: async () => {
+    throw new MockApiError('store capacity and account detail', 503, '/api/auth/login', 30);
+  } });
+  page.fill();
+  await page.submit();
+  assert.equal(page.node('login-error').textContent,
+    '로그인 요청을 일시적으로 처리할 수 없어요. 잠시 후 다시 시도해 주세요.');
+  assert.ok(!page.node('login-error').textContent.includes('capacity'));
+  assert.equal(page.node('login-fields').disabled, false);
+  assert.equal(page.requests.length, 1);
+});
+
+await check('CSRF issuance limits are not mislabeled as login attempt limits', async () => {
+  for (const [status, serverMessage] of [
+    [429, 'CSRF 토큰 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.'],
+    [503, 'CSRF 토큰 발급을 일시적으로 처리할 수 없습니다. 잠시 후 다시 시도해 주세요.']
+  ]) {
+    const page = await harness({ mutate: async () => {
+      throw new MockApiError(serverMessage, status, '/api/auth/csrf', 11);
+    } });
+    page.fill();
+    await page.submit();
+    assert.equal(page.node('login-error').textContent, serverMessage);
+    assert.ok(!page.node('login-error').textContent.includes('로그인 시도'));
+    assert.equal(page.node('login-fields').disabled, false);
+    assert.equal(page.requests.length, 1);
+  }
 });
 
 await check('Duplicate submits are blocked while the first login is pending', async () => {

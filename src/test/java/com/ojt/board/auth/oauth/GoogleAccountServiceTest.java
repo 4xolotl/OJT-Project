@@ -124,6 +124,20 @@ class GoogleAccountServiceTest {
     }
 
     @Test
+    void repeatedSubjectKeepsOriginalAccountWhenProfileEmailBecomesUnsupported() {
+        BoardOidcUser first = accountService.loadOrCreate(
+                identity("stable-unicode-subject", "original@example.com", true, "처음 이름"));
+
+        BoardOidcUser repeated = accountService.loadOrCreate(
+                identity("stable-unicode-subject", "user@fa\u00df.de", true, "바뀐 이름"));
+
+        assertEquals(first.getId(), repeated.getId());
+        assertEquals("original@example.com", repeated.getEmail());
+        assertEquals(1, userRepository.count());
+        assertEquals(1, oauthAccountRepository.count());
+    }
+
+    @Test
     void caseSensitiveSubjectsRemainDifferentIdentities() {
         BoardOidcUser first = accountService.loadOrCreate(identity("CaseSensitive", "first@example.com", true, "첫 회원"));
         BoardOidcUser second = accountService.loadOrCreate(identity("casesensitive", "second@example.com", true, "둘째 회원"));
@@ -196,7 +210,10 @@ class GoogleAccountServiceTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"", "not-an-email", "person@", "oversized"})
+    @ValueSource(strings = {
+            "", "not-an-email", "person@", "oversized",
+            "t\u00e9st@example.com", "user@fa\u00df.de", "\uff34\uff25\uff33\uff34@example.com"
+    })
     void invalidEmailDoesNotCreateAccount(String value) {
         String email = value.equals("oversized") ? "a".repeat(64) + "@" + "b".repeat(63) + "."
                 + "c".repeat(63) + "." + "d".repeat(62) : value;

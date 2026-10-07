@@ -13,6 +13,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.Cookie;
 import java.util.List;
 import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -31,7 +33,17 @@ import org.springframework.test.web.servlet.MvcResult;
 
 @SpringBootTest(properties = {
         "logging.level.root=DEBUG",
-        "spring.datasource.url=jdbc:h2:mem:auth-logging;MODE=MariaDB;DB_CLOSE_DELAY=-1"
+        "spring.datasource.url=jdbc:h2:mem:auth-logging;MODE=MariaDB;DB_CLOSE_DELAY=-1",
+        "app.security.login.rate-limit.source-account-threshold=1",
+        "app.security.login.rate-limit.account-threshold=1",
+        "app.security.login.rate-limit.source-threshold=1",
+        "app.security.login.rate-limit.initial-backoff=30s",
+        "app.security.login.rate-limit.max-backoff=1m",
+        "app.security.login.rate-limit.record-ttl=10m",
+        "app.security.login.rate-limit.source-record-ttl=1m",
+        "app.security.login.rate-limit.max-source-accounts=100",
+        "app.security.login.rate-limit.max-accounts=100",
+        "app.security.login.rate-limit.max-sources=100"
 })
 @AutoConfigureMockMvc(print = MockMvcPrint.NONE)
 @ActiveProfiles("test")
@@ -43,6 +55,14 @@ class AuthLoggingTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private LoginAttemptLimiter loginAttemptLimiter;
+
+    @BeforeEach
+    void clearLoginAttempts() {
+        loginAttemptLimiter.clear();
+    }
 
     @ParameterizedTest
     @ValueSource(strings = {"signup", "login"})
@@ -86,5 +106,33 @@ class AuthLoggingTest {
         assertFalse(logs.contains("rejected value ["), "Rejected request values must not appear in logs");
         assertFalse(result.getResponse().getContentAsString().contains(marker),
                 "Password markers must not appear in validation responses");
+    }
+
+    @Test
+    void rateLimitLogsAndResponsesDoNotExposePresentedEmailOrPassword(CapturedOutput output)
+            throws Exception {
+        MvcResult csrfResult = mockMvc.perform(get("/api/auth/csrf"))
+                .andExpect(status().isOk()).andReturn();
+        JsonNode csrf = objectMapper.readTree(csrfResult.getResponse().getContentAsByteArray());
+        Cookie csrfCookie = csrfResult.getResponse().getCookie("XSRF-TOKEN");
+        assertNotNull(csrfCookie);
+
+        String marker = "private-" + UUID.randomUUID();
+        String email = marker + "@example.com";
+        String password = marker + "-Secret!";
+        MvcResult result = mockMvc.perform(post("/api/auth/login")
+                        .cookie(csrfCookie)
+                        .header(csrf.path("headerName").asText(), csrf.path("token").asText())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(new AuthRequest.Login(email, password))))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.message").isNotEmpty())
+                .andReturn();
+
+        String logs = output.getAll();
+        assertFalse(logs.contains(email), "Presented email must not appear in rate-limit logs");
+        assertFalse(logs.contains(password), "Presented password must not appear in rate-limit logs");
+        assertFalse(result.getResponse().getContentAsString().contains(marker),
+                "Rate-limit responses must not expose credential markers");
     }
 }

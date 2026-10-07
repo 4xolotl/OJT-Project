@@ -5,6 +5,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.ojt.board.user.User;
+import com.ojt.board.user.EmailCanonicalizer;
 import com.ojt.board.user.UserRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -20,14 +21,18 @@ public class AuthService {
 
     @Transactional
     public User signup(AuthRequest.Signup request) {
-        signupPasswordPolicy.validate(request.email(), request.password());
+        String email = EmailCanonicalizer.canonicalize(request.email());
+        if (!EmailCanonicalizer.isValidCanonical(email, 100)) {
+            throw new IllegalArgumentException("올바른 이메일 주소를 입력해 주세요.");
+        }
+        signupPasswordPolicy.validate(email, request.password());
 
-        if (userRepository.existsByEmail(request.email())) {
+        if (userRepository.existsByEmail(email)) {
             throw new IllegalArgumentException("이미 가입된 이메일입니다.");
         }
 
         User user = new User(
-                request.email(),
+                email,
                 request.nickname(),
                 passwordEncoder.encode(request.password())
         );

@@ -19,3 +19,16 @@ app:
         refill-tokens: 1000
         refill-period: 1m
         max-sources: 4096
+    login:
+      rate-limit:
+        # Keep the general integration-test profile from throttling unrelated tests.
+        source-account-threshold: 1000
+        account-threshold: 1000
+        source-threshold: 1000
+        initial-backoff: 1s
+        max-backoff: 1m
+        record-ttl: 24h
+        source-record-ttl: 1m
+        max-source-accounts: 65536
+        max-accounts: 65536
+        max-sources: 65536

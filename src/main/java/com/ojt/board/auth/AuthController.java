@@ -5,8 +5,10 @@ import java.util.Map;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
@@ -24,6 +26,7 @@ import com.ojt.board.user.User;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.headers.Header;
+import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -45,10 +48,14 @@ public class AuthController {
     private final SecurityContextRepository securityContextRepository;
     private final CompositeSessionAuthenticationStrategy sessionAuthenticationStrategy;
     private final CsrfTokenRateLimiter csrfTokenRateLimiter;
+    private final LoginAttemptLimiter loginAttemptLimiter;
 
     @GetMapping("/csrf")
     @Operation(summary = "CSRF 토큰 발급", description = "서버 세션을 만들지 않고 쿠키 기반 CSRF 토큰을 발급합니다. "
             + "로그인·로그아웃 후 다시 조회할 수 있습니다.")
+    @ApiResponse(responseCode = "200", description = "CSRF 토큰 발급",
+            content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(implementation = CsrfToken.class)))
     @ApiResponse(responseCode = "429", description = "CSRF 토큰 요청 제한 초과",
             headers = @Header(name = HttpHeaders.RETRY_AFTER,
                     description = "다시 요청할 때까지 남은 초",
@@ -92,14 +99,53 @@ public class AuthController {
 
     @PostMapping("/login")
     @Operation(summary = "로그인", description = "인증 성공 시 JSESSIONID 쿠키로 인증을 유지합니다.")
-    public AuthResponse login(
+    @ApiResponse(responseCode = "200", description = "로그인 성공",
+            content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(implementation = AuthResponse.class)))
+    @ApiResponse(responseCode = "401", description = "이메일 또는 비밀번호 불일치")
+    @ApiResponse(responseCode = "429", description = "로그인 실패 제한 적용",
+            headers = @Header(name = HttpHeaders.RETRY_AFTER,
+                    description = "다시 요청할 때까지 남은 초",
+                    schema = @Schema(type = "integer", format = "int64", minimum = "1")))
+    @ApiResponse(responseCode = "503", description = "로그인 실패 제한 상태 저장소 포화",
+            headers = @Header(name = HttpHeaders.RETRY_AFTER,
+                    description = "다시 요청할 때까지 남은 초",
+                    schema = @Schema(type = "integer", format = "int64", minimum = "1")))
+    public ResponseEntity<?> login(
             @Valid @RequestBody AuthRequest.Login request,
             HttpServletRequest httpRequest,
             HttpServletResponse httpResponse
     ) {
-        Authentication authentication = authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(request.email(), request.password())
-        );
+        LoginAttemptLimiter.BeginDecision begin = loginAttemptLimiter.beginAttempt(
+                httpRequest.getRemoteAddr(), request.email());
+        if (!begin.permitted()) {
+            return loginRejected(begin.retryAfterSeconds(), begin.shouldLog(), begin.reason(), begin.scope());
+        }
+
+        LoginAttemptLimiter.Attempt attempt = begin.attempt();
+        Authentication authentication;
+        boolean attemptCompleted = false;
+        try {
+            try {
+                authentication = authenticationManager.authenticate(
+                        new UsernamePasswordAuthenticationToken(request.email(), request.password())
+                );
+            } catch (BadCredentialsException exception) {
+                LoginAttemptLimiter.Decision failure = loginAttemptLimiter.completeFailure(attempt);
+                attemptCompleted = true;
+                if (!failure.permitted()) {
+                    return loginRejected(failure.retryAfterSeconds(), failure.shouldLog(),
+                            failure.reason(), failure.scope());
+                }
+                throw exception;
+            }
+            loginAttemptLimiter.completeSuccess(attempt);
+            attemptCompleted = true;
+        } finally {
+            if (!attemptCompleted) {
+                loginAttemptLimiter.cancel(attempt);
+            }
+        }
 
         sessionAuthenticationStrategy.onAuthentication(authentication, httpRequest, httpResponse);
         SecurityContext context = SecurityContextHolder.createEmptyContext();
@@ -107,7 +153,28 @@ public class AuthController {
         SecurityContextHolder.setContext(context);
         securityContextRepository.saveContext(context, httpRequest, httpResponse);
 
-        return AuthResponse.from((BoardPrincipal) authentication.getPrincipal());
+        return ResponseEntity.ok(AuthResponse.from((BoardPrincipal) authentication.getPrincipal()));
+    }
+
+    private ResponseEntity<Map<String, String>> loginRejected(
+            long retryAfterSeconds,
+            boolean shouldLog,
+            LoginAttemptLimiter.DecisionReason reason,
+            LoginAttemptLimiter.Scope scope
+    ) {
+        if (shouldLog) {
+            log.warn("Login attempt rejected: path=/api/auth/login reason={} scope={}", reason, scope);
+        }
+        HttpStatus status = reason == LoginAttemptLimiter.DecisionReason.STORE_CAPACITY
+                ? HttpStatus.SERVICE_UNAVAILABLE
+                : HttpStatus.TOO_MANY_REQUESTS;
+        String message = status == HttpStatus.SERVICE_UNAVAILABLE
+                ? "로그인을 일시적으로 처리할 수 없습니다. 잠시 후 다시 시도해 주세요."
+                : "로그인 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.";
+        return ResponseEntity.status(status)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(retryAfterSeconds))
+                .cacheControl(CacheControl.noStore())
+                .body(Map.of("message", message));
     }
 
     @GetMapping("/me")
